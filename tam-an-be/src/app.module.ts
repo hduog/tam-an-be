@@ -24,6 +24,7 @@ import { UsersModule } from './users/users.module';
         namingStrategy: new SnakeNamingStrategy(),
         synchronize: false,
         extra: { max: 20 },
+        uuidExtension: 'pgcrypto',
       }),
     }),
     UsersModule,
