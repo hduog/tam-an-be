@@ -16,4 +16,5 @@ export const AppDataSource = new DataSource({
   namingStrategy: new SnakeNamingStrategy(),
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
+  uuidExtension: 'pgcrypto',
 });
