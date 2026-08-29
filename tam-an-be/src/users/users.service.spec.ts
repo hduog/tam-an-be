@@ -2,9 +2,10 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { FindOperator, Repository } from 'typeorm';
+import { FindOperator, IsNull, Repository } from 'typeorm';
 import { UsersService } from './users.service';
 import { AuthProvider, User, UserRole, UserStatus } from './user.entity';
+import { RefreshToken } from './refresh-token.entity';
 
 interface MockRepository {
   findOne: jest.MockedFunction<Repository<User>['findOne']>;
@@ -18,9 +19,22 @@ const createMockRepository = (): MockRepository => ({
   >,
 });
 
+interface MockRefreshTokenRepository {
+  find: jest.MockedFunction<Repository<RefreshToken>['find']>;
+  save: jest.MockedFunction<Repository<RefreshToken>['save']>;
+}
+
+const createMockRefreshTokenRepository = (): MockRefreshTokenRepository => ({
+  find: jest.fn().mockResolvedValue([]),
+  save: jest.fn((entity) => Promise.resolve(entity)) as jest.MockedFunction<
+    Repository<RefreshToken>['save']
+  >,
+});
+
 describe('UsersService', () => {
   let service: UsersService;
   let repository: MockRepository;
+  let refreshTokenRepository: MockRefreshTokenRepository;
 
   const buildUser = (overrides: Partial<User> = {}): User => {
     const user = new User();
@@ -53,11 +67,18 @@ describe('UsersService', () => {
           provide: getRepositoryToken(User),
           useValue: createMockRepository(),
         },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: createMockRefreshTokenRepository(),
+        },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
     repository = module.get<MockRepository>(getRepositoryToken(User));
+    refreshTokenRepository = module.get<MockRefreshTokenRepository>(
+      getRepositoryToken(RefreshToken),
+    );
   });
 
   it('returns the public profile when the username exists and is active', async () => {
@@ -179,6 +200,71 @@ describe('UsersService', () => {
       expect(result.display_name).toBe(user.displayName);
       expect(result.bio).toBe(user.bio);
       expect(result.username).toBe(user.username);
+    });
+  });
+
+  describe('deleteOwnAccount', () => {
+    it('xoá thành công: soft delete (status=deleted, deleted_at set), thu hồi toàn bộ refresh token active', async () => {
+      const user = buildUser();
+      repository.findOne.mockResolvedValueOnce(user); // findById
+      const activeTokens = [
+        {
+          id: 'rt-1',
+          user,
+          tokenHash: 'h1',
+          deviceInfo: null,
+          expiresAt: new Date(Date.now() + 1000),
+          revokedAt: null,
+        },
+        {
+          id: 'rt-2',
+          user,
+          tokenHash: 'h2',
+          deviceInfo: null,
+          expiresAt: new Date(Date.now() + 1000),
+          revokedAt: null,
+        },
+      ];
+      refreshTokenRepository.find.mockResolvedValue(activeTokens);
+
+      const result = await service.deleteOwnAccount(user.id);
+
+      expect(repository.save).toHaveBeenCalledTimes(1);
+      const savedUser = repository.save.mock.calls[0][0] as User;
+      expect(savedUser.status).toBe(UserStatus.DELETED);
+      expect(savedUser.deletedAt).toBeInstanceOf(Date);
+
+      expect(refreshTokenRepository.find).toHaveBeenCalledWith({
+        where: { user: { id: user.id }, revokedAt: IsNull() },
+      });
+      expect(refreshTokenRepository.save).toHaveBeenCalledTimes(2);
+      for (const call of refreshTokenRepository.save.mock.calls) {
+        const savedToken = call[0] as RefreshToken;
+        expect(savedToken.revokedAt).toBeInstanceOf(Date);
+      }
+
+      expect(typeof result.message).toBe('string');
+    });
+
+    it('chưa đăng nhập / token không hợp lệ (user không tồn tại): ném 401, không xoá, không thu hồi token', async () => {
+      repository.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.deleteOwnAccount('unknown-user-id')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
+      expect(refreshTokenRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('tài khoản đã bị xoá/suspend từ trước (không active): ném 401', async () => {
+      repository.findOne.mockResolvedValueOnce(
+        buildUser({ status: UserStatus.SUSPENDED }),
+      );
+
+      await expect(service.deleteOwnAccount('user-id')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 });
