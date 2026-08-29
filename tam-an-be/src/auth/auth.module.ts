@@ -8,6 +8,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokenService } from './token.service';
+import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
+import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
 
 @Module({
   imports: [
@@ -32,7 +34,13 @@ import { TokenService } from './token.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, TokenService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    TokenService,
+    GoogleTokenVerifierService,
+    AppleTokenVerifierService,
+  ],
   exports: [JwtModule, TokenService],
 })
 export class AuthModule {}

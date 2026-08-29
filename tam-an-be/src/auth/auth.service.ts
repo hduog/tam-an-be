@@ -24,7 +24,11 @@ import {
   RefreshResponseDto,
   toRefreshResponse,
 } from './dto/refresh-response.dto';
+import { SocialAuthProvider, SocialLoginDto } from './dto/social-login.dto';
 import { TokenService } from './token.service';
+import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
+import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
+import { SocialTokenVerifier } from './interfaces/social-token-verifier.interface';
 
 // Message cố tình chung chung cho mọi lý do đăng nhập thất bại (sai email,
 // sai mật khẩu, tài khoản suspended/deleted, account chỉ đăng nhập social)
@@ -35,10 +39,22 @@ const INVALID_CREDENTIALS_MESSAGE = 'Email hoặc mật khẩu không đúng';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  private readonly socialVerifiers: Record<
+    SocialAuthProvider,
+    SocialTokenVerifier
+  >;
+
   constructor(
     private readonly usersService: UsersService,
     private readonly tokenService: TokenService,
-  ) {}
+    googleTokenVerifier: GoogleTokenVerifierService,
+    appleTokenVerifier: AppleTokenVerifierService,
+  ) {
+    this.socialVerifiers = {
+      [SocialAuthProvider.GOOGLE]: googleTokenVerifier,
+      [SocialAuthProvider.APPLE]: appleTokenVerifier,
+    };
+  }
 
   async register(dto: RegisterDto): Promise<RegisterResponseDto> {
     const existing = await this.usersService.findByEmail(dto.email);
@@ -125,5 +141,62 @@ export class AuthService {
       deviceInfo,
     );
     return toRefreshResponse(pair);
+  }
+
+  async socialLogin(
+    dto: SocialLoginDto,
+    deviceInfo: string | null,
+  ): Promise<LoginResponseDto> {
+    const provider =
+      dto.provider === SocialAuthProvider.GOOGLE
+        ? AuthProvider.GOOGLE
+        : AuthProvider.APPLE;
+    const verified = await this.socialVerifiers[dto.provider].verify(
+      dto.id_token,
+    );
+
+    let user = await this.usersService.findByProviderAndProviderId(
+      provider,
+      verified.providerId,
+    );
+
+    if (!user) {
+      const existingByEmail = await this.usersService.findByEmail(
+        verified.email,
+      );
+      if (existingByEmail) {
+        // Quyết định PO còn để ngỏ trong issue gốc ("liên kết tài khoản
+        // hay từ chối"): chọn TỪ CHỐI thay vì tự động liên kết ngầm định
+        // — an toàn hơn (tránh chiếm đoạt tài khoản qua email trùng khi
+        // chưa xác thực chủ sở hữu thật sự), đổi lại UX kém hơn. Cần PO
+        // xác nhận nếu muốn đổi sang auto-link.
+        throw new ConflictException(
+          existingByEmail.provider === AuthProvider.LOCAL
+            ? 'Email này đã được đăng ký bằng email/password. Vui lòng đăng nhập bằng email/password.'
+            : 'Email này đã được liên kết với một tài khoản social khác.',
+        );
+      }
+
+      user = await this.usersService.create({
+        email: verified.email,
+        passwordHash: null,
+        // Apple thường không trả tên trong idToken — fallback về phần đầu
+        // email, người dùng có thể đổi lại qua PATCH /users/me (#12).
+        displayName: verified.displayName ?? verified.email.split('@')[0],
+        role: UserRole.USER,
+        status: UserStatus.ACTIVE,
+        provider,
+        providerId: verified.providerId,
+      });
+    }
+
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Tài khoản không khả dụng');
+    }
+
+    const { accessToken, refreshToken } =
+      await this.tokenService.issueTokenPair(user, deviceInfo);
+
+    return toLoginResponse(user, accessToken, refreshToken);
   }
 }

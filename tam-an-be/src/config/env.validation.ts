@@ -11,4 +11,8 @@ export const envValidationSchema = Joi.object({
   DATABASE_NAME: Joi.string().required(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+  // Optional: chưa bắt buộc vì social login (#04) chỉ báo lỗi rõ ràng khi
+  // gọi mà thiếu cấu hình, không chặn khởi động toàn bộ app.
+  GOOGLE_CLIENT_ID: Joi.string().optional(),
+  APPLE_CLIENT_ID: Joi.string().optional(),
 });

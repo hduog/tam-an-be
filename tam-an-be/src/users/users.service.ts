@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
-import { User, UserStatus } from './user.entity';
+import { AuthProvider, User, UserStatus } from './user.entity';
 import { RefreshToken } from './refresh-token.entity';
 import { PublicUserProfileDto } from './dto/public-user-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -22,6 +22,7 @@ export interface CreateUserData {
   role: User['role'];
   status: User['status'];
   provider: User['provider'];
+  providerId?: string | null;
 }
 
 @Injectable()
@@ -45,6 +46,13 @@ export class UsersService {
     return this.usersRepository.findOne({
       where: { id, deletedAt: IsNull() },
     });
+  }
+
+  findByProviderAndProviderId(
+    provider: AuthProvider,
+    providerId: string,
+  ): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { provider, providerId } });
   }
 
   create(data: CreateUserData): Promise<User> {
