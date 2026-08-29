@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { envValidationSchema } from './config/env.validation';
 import { UsersModule } from './users/users.module';
+import { AuthModule } from './auth/auth.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -32,6 +33,7 @@ import { AppService } from './app.service';
       }),
     }),
     UsersModule,
+    AuthModule,
   ],
 })
 export class AppModule {}
