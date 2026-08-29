@@ -57,6 +57,11 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## API docs (Swagger)
+
+- Swagger UI: `http://localhost:<PORT>/api/docs` (chỉ bật khi `NODE_ENV` khác `production`).
+- Hướng dẫn thêm docs cho endpoint mới, test Bearer token trên UI: xem [documents/swagger-guide.md](documents/swagger-guide.md).
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
