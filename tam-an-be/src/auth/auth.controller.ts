@@ -1,19 +1,29 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterResponseDto } from './dto/register-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
+import { AuthMeResponseDto } from './dto/auth-me-response.dto';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -46,5 +56,16 @@ export class AuthController {
     @Headers('user-agent') userAgent?: string,
   ): Promise<LoginResponseDto> {
     return this.authService.login(dto, userAgent ?? null);
+  }
+
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Lấy thông tin tài khoản của phiên hiện tại' })
+  @ApiResponse({ status: 200, description: 'Thành công' })
+  @ApiResponse({ status: 401, description: 'Token thiếu/sai/hết hạn' })
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  @HttpCode(HttpStatus.OK)
+  me(@CurrentUser() user: AuthenticatedUser): Promise<AuthMeResponseDto> {
+    return this.authService.me(user.id);
   }
 }

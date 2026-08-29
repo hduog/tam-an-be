@@ -10,7 +10,9 @@ import { TokenService } from './token.service';
 
 describe('AuthService', () => {
   let service: AuthService;
-  let usersService: jest.Mocked<Pick<UsersService, 'findByEmail' | 'create'>>;
+  let usersService: jest.Mocked<
+    Pick<UsersService, 'findByEmail' | 'create' | 'findById'>
+  >;
   let tokenService: jest.Mocked<Pick<TokenService, 'issueTokenPair'>>;
 
   const registerDto: RegisterDto = {
@@ -46,6 +48,7 @@ describe('AuthService', () => {
     usersService = {
       findByEmail: jest.fn(),
       create: jest.fn(),
+      findById: jest.fn(),
     };
     tokenService = {
       issueTokenPair: jest.fn(),
@@ -212,6 +215,55 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('me', () => {
+    it('trả đúng thông tin user, không có password_hash', async () => {
+      const user = buildUser({
+        email: 'me@tam-an.dev',
+        username: 'me_user',
+        avatarUrl: 'https://cdn.tam-an.dev/avatars/me.png',
+        bio: 'hello',
+        emailVerifiedAt: new Date('2026-02-01T00:00:00Z'),
+      });
+      usersService.findById.mockResolvedValue(user);
+
+      const result = await service.me(user.id);
+
+      expect(usersService.findById).toHaveBeenCalledWith(user.id);
+      expect(result).toEqual({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        display_name: user.displayName,
+        username: user.username,
+        avatar_url: user.avatarUrl,
+        bio: user.bio,
+        email_verified_at: user.emailVerifiedAt,
+        status: user.status,
+      });
+      expect(
+        (result as unknown as Record<string, unknown>).password_hash,
+      ).toBeUndefined();
+    });
+
+    it('user không còn tồn tại (đã bị xoá sau khi token phát hành): ném 401', async () => {
+      usersService.findById.mockResolvedValue(null);
+
+      await expect(service.me('deleted-user-id')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('user bị suspended sau khi token phát hành: ném 401', async () => {
+      usersService.findById.mockResolvedValue(
+        buildUser({ status: UserStatus.SUSPENDED }),
+      );
+
+      await expect(service.me('some-user-id')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });
