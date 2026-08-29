@@ -35,9 +35,16 @@ import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @ApiOperation({ summary: 'Đăng ký tài khoản bằng email/password' })
+  @ApiOperation({
+    summary: 'Đăng ký tài khoản bằng email/password',
+    description: 'Giới hạn 5 lần thử / IP / 60s để chống spam đăng ký.',
+  })
   @ApiResponse({ status: 201, description: 'Tạo tài khoản thành công' })
   @ApiResponse({ status: 409, description: 'Email đã được sử dụng' })
+  @ApiResponse({ status: 429, description: 'Vượt quá số lần thử cho phép' })
+  // Chống spam đăng ký hàng loạt: tối đa 5 lần thử / IP / 60s (Issue #14 AC).
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   register(@Body() dto: RegisterDto): Promise<RegisterResponseDto> {
