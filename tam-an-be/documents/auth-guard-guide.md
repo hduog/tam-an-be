@@ -58,6 +58,9 @@ export class UsersController {
   hoặc không phải chủ resource). Do `RolesGuard` xử lý cho role, hoặc tự
   `throw new ForbiddenException()` trong service/controller cho Owner check.
 
+Response 401/403 trả về theo format lỗi chuẩn chung của cả API (Issue #10) —
+xem [documents/error-response-guide.md](error-response-guide.md).
+
 ## Lấy thông tin user hiện tại
 Dùng decorator `@CurrentUser()` thay vì đọc `req.user` trực tiếp:
 

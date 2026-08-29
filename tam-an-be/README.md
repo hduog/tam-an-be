@@ -62,6 +62,10 @@ $ npm run test:cov
 - Swagger UI: `http://localhost:<PORT>/api/docs` (chỉ bật khi `NODE_ENV` khác `production`).
 - Hướng dẫn thêm docs cho endpoint mới, test Bearer token trên UI: xem [documents/swagger-guide.md](documents/swagger-guide.md).
 
+## Format response lỗi
+
+- Toàn bộ lỗi trả về theo 1 format chuẩn (`statusCode`, `errorCode`, `message`, `path`, `timestamp`), áp dụng global — không cần cấu hình gì thêm ở controller mới. Chi tiết: xem [documents/error-response-guide.md](documents/error-response-guide.md).
+
 ## Xác thực (JWT Guard)
 
 - Cần set `JWT_ACCESS_SECRET` (tối thiểu 32 ký tự) trong biến môi trường; `JWT_ACCESS_EXPIRES_IN` tuỳ chọn (mặc định `15m`).
