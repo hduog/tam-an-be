@@ -23,35 +23,47 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+[Nest](https://github.com/nestjs/nest) monorepo — kiến trúc microservice:
+`auth-service` (identity, DB riêng `auth_db`) và `users-service` (hồ sơ
+người dùng, DB riêng `users_db`), chia sẻ code qua `libs/shared-auth`
+(JWT guard/strategy) và `libs/shared-common` (error response filter).
 
 ## Project setup
 
 ```bash
 $ npm install
+$ docker compose up -d   # auth-postgres (5433) + users-postgres (5434)
 ```
 
 ## Compile and run the project
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
+# development (mỗi service 1 process riêng)
+$ npm run start:auth:dev
+$ npm run start:users:dev
 
 # production mode
-$ npm run start:prod
+$ npm run build
+$ npm run start:prod:auth
+$ npm run start:prod:users
+```
+
+## Migration
+
+```bash
+$ npm run migration:run:auth
+$ npm run migration:run:users
 ```
 
 ## Run tests
 
 ```bash
-# unit tests
+# unit tests (cả 2 app + libs)
 $ npm run test
 
-# e2e tests
-$ npm run test:e2e
+# e2e tests (từng app, cần DB đang chạy)
+$ npm run test:e2e:auth
+$ npm run test:e2e:users
 
 # test coverage
 $ npm run test:cov

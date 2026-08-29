@@ -20,6 +20,20 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "paths": {
+      "@shared-auth": [
+        "libs/shared-auth/src"
+      ],
+      "@shared-auth/*": [
+        "libs/shared-auth/src/*"
+      ],
+      "@shared-common": [
+        "libs/shared-common/src"
+      ],
+      "@shared-common/*": [
+        "libs/shared-common/src/*"
+      ]
+    }
   }
 }
