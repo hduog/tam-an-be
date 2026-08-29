@@ -1,16 +1,23 @@
 import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { createPublicKey } from 'crypto';
+import * as jwt from 'jsonwebtoken';
 import { IsNull, Repository } from 'typeorm';
 import { UserRole, UserStatus } from '@shared-auth';
+import { generateTestRsaKeyPair } from '@shared-auth/testing/rsa-test-keypair';
 import { RefreshToken } from './refresh-token.entity';
 import { AuthProvider, User } from '../identity/user.entity';
 import { TokenService } from './token.service';
 
+const { privateKeyPem: TEST_PRIVATE_KEY } = generateTestRsaKeyPair();
+
 describe('TokenService', () => {
   let service: TokenService;
   let jwtService: jest.Mocked<Pick<JwtService, 'sign'>>;
+  let configService: jest.Mocked<Pick<ConfigService, 'get' | 'getOrThrow'>>;
   let repository: jest.Mocked<
     Pick<Repository<RefreshToken>, 'create' | 'save' | 'findOne' | 'find'>
   >;
@@ -31,6 +38,10 @@ describe('TokenService', () => {
 
   beforeEach(async () => {
     jwtService = { sign: jest.fn().mockReturnValue('signed-access-token') };
+    configService = {
+      get: jest.fn().mockReturnValue('test-key-1'),
+      getOrThrow: jest.fn().mockReturnValue(TEST_PRIVATE_KEY),
+    };
     repository = {
       create: jest.fn((data) => data as RefreshToken),
       save: jest.fn((entity) => Promise.resolve(entity as RefreshToken)),
@@ -42,6 +53,7 @@ describe('TokenService', () => {
       providers: [
         TokenService,
         { provide: JwtService, useValue: jwtService },
+        { provide: ConfigService, useValue: configService },
         { provide: getRepositoryToken(RefreshToken), useValue: repository },
       ],
     }).compile();
@@ -233,6 +245,41 @@ describe('TokenService', () => {
       for (const call of repository.save.mock.calls) {
         expect((call[0] as RefreshToken).revokedAt).toBeInstanceOf(Date);
       }
+    });
+  });
+
+  describe('getJwks', () => {
+    it('trả đúng shape JWKS với kid từ JWT_KEY_ID', () => {
+      const result = service.getJwks();
+
+      expect(result.keys).toHaveLength(1);
+      expect(result.keys[0]).toMatchObject({
+        kty: 'RSA',
+        kid: 'test-key-1',
+        use: 'sig',
+        alg: 'RS256',
+      });
+      expect(configService.getOrThrow).toHaveBeenCalledWith('JWT_PRIVATE_KEY');
+    });
+
+    it('public key trong JWKS verify được token ký bởi private key tương ứng', () => {
+      const result = service.getJwks();
+      const jwk = result.keys[0];
+
+      const token = jwt.sign({ sub: 'user-1' }, TEST_PRIVATE_KEY, {
+        algorithm: 'RS256',
+        keyid: jwk.kid,
+      });
+      const publicKeyPem = createPublicKey({
+        key: { kty: jwk.kty, n: jwk.n, e: jwk.e },
+        format: 'jwk',
+      })
+        .export({ type: 'spki', format: 'pem' })
+        .toString();
+
+      expect(() =>
+        jwt.verify(token, publicKeyPem, { algorithms: ['RS256'] }),
+      ).not.toThrow();
     });
   });
 });

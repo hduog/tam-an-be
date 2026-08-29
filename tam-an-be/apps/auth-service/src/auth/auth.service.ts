@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
-import { UserRole, UserStatus } from '@shared-auth';
+import { SigningJwk, UserRole, UserStatus } from '@shared-auth';
 import { AuthProvider } from '../identity/user.entity';
 import { IdentityService } from '../identity/identity.service';
 import { RegisterDto } from './dto/register.dto';
@@ -273,5 +273,9 @@ export class AuthService {
     await this.tokenService.revokeAllForUser(userId);
 
     return { message: 'Tài khoản đã được xoá' };
+  }
+
+  getJwks(): { keys: SigningJwk[] } {
+    return this.tokenService.getJwks();
   }
 }

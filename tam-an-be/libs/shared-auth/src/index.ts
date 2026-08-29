@@ -8,3 +8,4 @@ export * from './decorators/roles.decorator';
 export * from './interfaces/jwt-payload.interface';
 export * from './enums/user-role.enum';
 export * from './enums/user-status.enum';
+export * from './rsa-keys.util';

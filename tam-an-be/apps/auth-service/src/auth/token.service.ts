@@ -1,10 +1,18 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { IsNull, Repository } from 'typeorm';
+import {
+  SigningJwk,
+  derivePublicKeyPem,
+  publicKeyPemToJwk,
+} from '@shared-auth';
 import { RefreshToken } from './refresh-token.entity';
 import { User } from '../identity/user.entity';
+
+const DEFAULT_KEY_ID = 'auth-key-1';
 
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
 
@@ -28,9 +36,18 @@ export interface TokenPair {
 export class TokenService {
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     @InjectRepository(RefreshToken)
     private readonly refreshTokensRepository: Repository<RefreshToken>,
   ) {}
+
+  /** Public key ở dạng JWKS — phục vụ GET /auth/jwks.json cho các service khác verify. */
+  getJwks(): { keys: SigningJwk[] } {
+    const privateKey = this.configService.getOrThrow<string>('JWT_PRIVATE_KEY');
+    const kid = this.configService.get<string>('JWT_KEY_ID', DEFAULT_KEY_ID);
+    const publicKeyPem = derivePublicKeyPem(privateKey);
+    return { keys: [publicKeyPemToJwk(publicKeyPem, kid)] };
+  }
 
   async issueTokenPair(
     user: User,
