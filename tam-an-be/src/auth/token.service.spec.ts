@@ -10,7 +10,7 @@ describe('TokenService', () => {
   let service: TokenService;
   let jwtService: jest.Mocked<Pick<JwtService, 'sign'>>;
   let repository: jest.Mocked<
-    Pick<Repository<RefreshToken>, 'create' | 'save'>
+    Pick<Repository<RefreshToken>, 'create' | 'save' | 'findOne'>
   >;
 
   const user: User = Object.assign(new User(), {
@@ -36,6 +36,7 @@ describe('TokenService', () => {
     repository = {
       create: jest.fn((data) => data as RefreshToken),
       save: jest.fn((entity) => Promise.resolve(entity as RefreshToken)),
+      findOne: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -103,5 +104,56 @@ describe('TokenService', () => {
     expect(service.hashRefreshToken('abc')).not.toBe(
       service.hashRefreshToken('xyz'),
     );
+  });
+
+  describe('revokeByUserAndToken', () => {
+    it('thu hồi đúng token: set revokedAt và save', async () => {
+      const existing: RefreshToken = {
+        id: 'rt-1',
+        user,
+        tokenHash: service.hashRefreshToken('plain-refresh-token'),
+        deviceInfo: 'jest-agent',
+        expiresAt: new Date(Date.now() + 1000),
+        revokedAt: null,
+      };
+      repository.findOne.mockResolvedValue(existing);
+
+      await service.revokeByUserAndToken(user.id, 'plain-refresh-token');
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: {
+          tokenHash: service.hashRefreshToken('plain-refresh-token'),
+          user: { id: user.id },
+        },
+      });
+      expect(repository.save).toHaveBeenCalledTimes(1);
+      const savedArg = repository.save.mock.calls[0][0] as RefreshToken;
+      expect(savedArg.revokedAt).toBeInstanceOf(Date);
+    });
+
+    it('token đã bị thu hồi trước đó: idempotent, không gọi save lại', async () => {
+      repository.findOne.mockResolvedValue({
+        id: 'rt-1',
+        user,
+        tokenHash: 'hash',
+        deviceInfo: null,
+        expiresAt: new Date(Date.now() + 1000),
+        revokedAt: new Date('2026-01-01T00:00:00Z'),
+      });
+
+      await expect(
+        service.revokeByUserAndToken(user.id, 'already-revoked-token'),
+      ).resolves.toBeUndefined();
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('token không tồn tại/không thuộc user: idempotent, không throw, không gọi save', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.revokeByUserAndToken(user.id, 'unknown-token'),
+      ).resolves.toBeUndefined();
+      expect(repository.save).not.toHaveBeenCalled();
+    });
   });
 });

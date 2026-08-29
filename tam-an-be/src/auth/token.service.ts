@@ -57,4 +57,26 @@ export class TokenService {
   hashRefreshToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
+
+  /**
+   * Thu hồi đúng refresh token của user đang gọi (không phải toàn bộ thiết
+   * bị) — idempotent: không tìm thấy hoặc đã revoke trước đó đều coi là
+   * thành công, không throw, không tiết lộ token có tồn tại hay không.
+   */
+  async revokeByUserAndToken(
+    userId: string,
+    refreshToken: string,
+  ): Promise<void> {
+    const tokenHash = this.hashRefreshToken(refreshToken);
+    const entity = await this.refreshTokensRepository.findOne({
+      where: { tokenHash, user: { id: userId } },
+    });
+
+    if (!entity || entity.revokedAt) {
+      return;
+    }
+
+    entity.revokedAt = new Date();
+    await this.refreshTokensRepository.save(entity);
+  }
 }

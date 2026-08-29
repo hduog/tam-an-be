@@ -18,6 +18,7 @@ import {
   AuthMeResponseDto,
   toAuthMeResponse,
 } from './dto/auth-me-response.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { TokenService } from './token.service';
 
 // Message cố tình chung chung cho mọi lý do đăng nhập thất bại (sai email,
@@ -101,5 +102,12 @@ export class AuthService {
     }
 
     return toAuthMeResponse(user);
+  }
+
+  async logout(userId: string, dto: LogoutDto): Promise<{ message: string }> {
+    await this.tokenService.revokeByUserAndToken(userId, dto.refresh_token);
+    // Luôn trả 200 (idempotent) kể cả khi token không tồn tại/đã bị thu
+    // hồi trước đó — không tiết lộ trạng thái token qua response.
+    return { message: 'Đăng xuất thành công' };
   }
 }
