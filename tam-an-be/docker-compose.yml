@@ -1,15 +1,28 @@
 services:
-  postgres:
+  auth-postgres:
     image: postgres:16
     restart: unless-stopped
     environment:
       POSTGRES_USER: tam_an
       POSTGRES_PASSWORD: tam_an_password
-      POSTGRES_DB: tam_an_be_db
+      POSTGRES_DB: auth_db
     ports:
       - "5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - auth_pgdata:/var/lib/postgresql/data
+
+  users-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tam_an
+      POSTGRES_PASSWORD: tam_an_password
+      POSTGRES_DB: users_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - users_pgdata:/var/lib/postgresql/data
 
 volumes:
-  pgdata:
+  auth_pgdata:
+  users_pgdata:
