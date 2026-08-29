@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { User, UserStatus } from './user.entity';
+import { RefreshToken } from './refresh-token.entity';
 import { PublicUserProfileDto } from './dto/public-user-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import {
@@ -28,6 +29,12 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    // Inject trực tiếp thay vì gọi qua AuthModule/TokenService — AuthModule
+    // đã import UsersModule, import ngược lại sẽ tạo circular dependency.
+    // Thu hồi token khi xoá tài khoản vốn cũng thuộc vòng đời "account",
+    // hợp lý để UsersService tự quản lý.
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokensRepository: Repository<RefreshToken>,
   ) {}
 
   findByEmail(email: string): Promise<User | null> {
@@ -102,5 +109,35 @@ export class UsersService {
 
     const saved = await this.usersRepository.save(user);
     return toUserProfileResponse(saved);
+  }
+
+  async deleteOwnAccount(userId: string): Promise<{ message: string }> {
+    const user = await this.findById(userId);
+    // Route cố định /users/me — Owner luôn là chính user trong token.
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Phiên đăng nhập không còn hiệu lực');
+    }
+
+    // Soft delete: giữ lại dữ liệu tương tác lịch sử (posts/comments ở
+    // các sprint sau) qua deleted_at, không xoá cứng — theo ghi chú thiết
+    // kế của issue.
+    user.status = UserStatus.DELETED;
+    user.deletedAt = new Date();
+    await this.usersRepository.save(user);
+
+    // Thu hồi toàn bộ refresh token -> đăng xuất khỏi mọi thiết bị ngay
+    // lập tức, không chờ access token hết hạn tự nhiên.
+    const activeTokens = await this.refreshTokensRepository.find({
+      where: { user: { id: userId }, revokedAt: IsNull() },
+    });
+    const now = new Date();
+    await Promise.all(
+      activeTokens.map((token) => {
+        token.revokedAt = now;
+        return this.refreshTokensRepository.save(token);
+      }),
+    );
+
+    return { message: 'Tài khoản đã được xoá' };
   }
 }

@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -34,6 +44,23 @@ export class UsersController {
     @Body() dto: UpdateProfileDto,
   ): Promise<UserProfileResponseDto> {
     return this.usersService.updateProfile(user.id, dto);
+  }
+
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Xoá tài khoản của chính mình (soft delete, Owner)',
+    description:
+      'Set status=deleted + deleted_at, thu hồi toàn bộ refresh token (đăng xuất mọi thiết bị). Không xoá cứng dữ liệu.',
+  })
+  @ApiResponse({ status: 200, description: 'Xoá thành công' })
+  @ApiResponse({ status: 401, description: 'Thiếu/sai access token' })
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  deleteMe(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    return this.usersService.deleteOwnAccount(user.id);
   }
 
   @Get(':username')
