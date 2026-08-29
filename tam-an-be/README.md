@@ -70,6 +70,7 @@ $ npm run test:cov
 
 - Cần set `JWT_ACCESS_SECRET` (tối thiểu 32 ký tự) trong biến môi trường; `JWT_ACCESS_EXPIRES_IN` tuỳ chọn (mặc định `15m`).
 - Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md).
+- Sprint 1 (Auth/Users) — tổng kết bảo mật & hạ tầng phụ trợ, các điểm còn cần team/PO/infra quyết định: xem [documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md](documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md).
 
 ## Deployment
 
