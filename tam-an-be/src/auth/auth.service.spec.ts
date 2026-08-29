@@ -6,12 +6,19 @@ import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { SocialAuthProvider, SocialLoginDto } from './dto/social-login.dto';
 import { TokenService } from './token.service';
+import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
+import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
+import { SocialTokenVerifier } from './interfaces/social-token-verifier.interface';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: jest.Mocked<
-    Pick<UsersService, 'findByEmail' | 'create' | 'findById'>
+    Pick<
+      UsersService,
+      'findByEmail' | 'create' | 'findById' | 'findByProviderAndProviderId'
+    >
   >;
   let tokenService: jest.Mocked<
     Pick<
@@ -19,6 +26,8 @@ describe('AuthService', () => {
       'issueTokenPair' | 'revokeByUserAndToken' | 'rotateRefreshToken'
     >
   >;
+  let googleVerifier: jest.Mocked<SocialTokenVerifier>;
+  let appleVerifier: jest.Mocked<SocialTokenVerifier>;
 
   const registerDto: RegisterDto = {
     email: 'new.user@tam-an.dev',
@@ -54,18 +63,23 @@ describe('AuthService', () => {
       findByEmail: jest.fn(),
       create: jest.fn(),
       findById: jest.fn(),
+      findByProviderAndProviderId: jest.fn(),
     };
     tokenService = {
       issueTokenPair: jest.fn(),
       revokeByUserAndToken: jest.fn(),
       rotateRefreshToken: jest.fn(),
     };
+    googleVerifier = { verify: jest.fn() };
+    appleVerifier = { verify: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
+        { provide: GoogleTokenVerifierService, useValue: googleVerifier },
+        { provide: AppleTokenVerifierService, useValue: appleVerifier },
       ],
     }).compile();
 
@@ -331,6 +345,159 @@ describe('AuthService', () => {
       await expect(
         service.refresh({ refresh_token: 'bad-token' }, null),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('socialLogin', () => {
+    const socialDto: SocialLoginDto = {
+      provider: SocialAuthProvider.GOOGLE,
+      id_token: 'raw-google-id-token',
+    };
+
+    it('token hợp lệ + tài khoản social đã tồn tại: đăng nhập vào tài khoản đó, không tạo mới', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-1',
+        email: 'social.user@tam-an.dev',
+      });
+      const existing = buildUser({
+        provider: AuthProvider.GOOGLE,
+        providerId: 'google-sub-1',
+        email: 'social.user@tam-an.dev',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(existing);
+      tokenService.issueTokenPair.mockResolvedValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const result = await service.socialLogin(socialDto, null);
+
+      expect(usersService.findByProviderAndProviderId).toHaveBeenCalledWith(
+        AuthProvider.GOOGLE,
+        'google-sub-1',
+      );
+      expect(usersService.create).not.toHaveBeenCalled();
+      expect(tokenService.issueTokenPair).toHaveBeenCalledWith(existing, null);
+      expect(result.access_token).toBe('at');
+    });
+
+    it('token hợp lệ + chưa từng đăng nhập social này, email cũng chưa tồn tại: tạo user mới với passwordHash=null', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-new',
+        email: 'brand.new@tam-an.dev',
+        displayName: 'Người Mới Từ Google',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(null);
+      usersService.findByEmail.mockResolvedValue(null);
+      const createdUser = buildUser({
+        provider: AuthProvider.GOOGLE,
+        providerId: 'google-sub-new',
+        email: 'brand.new@tam-an.dev',
+        passwordHash: null,
+        displayName: 'Người Mới Từ Google',
+      });
+      usersService.create.mockResolvedValue(createdUser);
+      tokenService.issueTokenPair.mockResolvedValue({
+        accessToken: 'at2',
+        refreshToken: 'rt2',
+      });
+
+      await service.socialLogin(socialDto, 'device-x');
+
+      expect(usersService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'brand.new@tam-an.dev',
+          passwordHash: null,
+          provider: AuthProvider.GOOGLE,
+          providerId: 'google-sub-new',
+          displayName: 'Người Mới Từ Google',
+        }),
+      );
+    });
+
+    it('email đã đăng ký bằng local account: ném 409, không tạo user mới, không phát hành token', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-x',
+        email: 'local.user@tam-an.dev',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(null);
+      usersService.findByEmail.mockResolvedValue(
+        buildUser({ provider: AuthProvider.LOCAL }),
+      );
+
+      await expect(service.socialLogin(socialDto, null)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(usersService.create).not.toHaveBeenCalled();
+      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+    });
+
+    it('email đã liên kết với social provider khác: ném 409', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-y',
+        email: 'apple.user@tam-an.dev',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(null);
+      usersService.findByEmail.mockResolvedValue(
+        buildUser({ provider: AuthProvider.APPLE, providerId: 'apple-sub' }),
+      );
+
+      await expect(service.socialLogin(socialDto, null)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(usersService.create).not.toHaveBeenCalled();
+    });
+
+    it('idToken không hợp lệ/hết hạn: lỗi từ verifier được ném thẳng lên, không gọi UsersService', async () => {
+      googleVerifier.verify.mockRejectedValue(
+        new UnauthorizedException(
+          'Google idToken không hợp lệ hoặc đã hết hạn',
+        ),
+      );
+
+      await expect(service.socialLogin(socialDto, null)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(usersService.findByProviderAndProviderId).not.toHaveBeenCalled();
+    });
+
+    it('tài khoản social đã tồn tại nhưng không active (suspended/deleted): ném 401', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-1',
+        email: 'suspended@tam-an.dev',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(
+        buildUser({ status: UserStatus.SUSPENDED }),
+      );
+
+      await expect(service.socialLogin(socialDto, null)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
+    });
+
+    it('provider apple: dùng đúng AppleTokenVerifierService, không phải Google', async () => {
+      appleVerifier.verify.mockResolvedValue({
+        providerId: 'apple-sub-1',
+        email: 'apple.new@tam-an.dev',
+      });
+      usersService.findByProviderAndProviderId.mockResolvedValue(null);
+      usersService.findByEmail.mockResolvedValue(null);
+      usersService.create.mockResolvedValue(
+        buildUser({ provider: AuthProvider.APPLE, providerId: 'apple-sub-1' }),
+      );
+      tokenService.issueTokenPair.mockResolvedValue({
+        accessToken: 'at3',
+        refreshToken: 'rt3',
+      });
+
+      await service.socialLogin(
+        { provider: SocialAuthProvider.APPLE, id_token: 'raw-apple-id-token' },
+        null,
+      );
+
+      expect(appleVerifier.verify).toHaveBeenCalledWith('raw-apple-id-token');
+      expect(googleVerifier.verify).not.toHaveBeenCalled();
     });
   });
 });

@@ -24,6 +24,7 @@ import { AuthMeResponseDto } from './dto/auth-me-response.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RefreshResponseDto } from './dto/refresh-response.dto';
+import { SocialLoginDto } from './dto/social-login.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
@@ -107,5 +108,25 @@ export class AuthController {
     @Headers('user-agent') userAgent?: string,
   ): Promise<RefreshResponseDto> {
     return this.authService.refresh(dto, userAgent ?? null);
+  }
+
+  @ApiOperation({
+    summary: 'Đăng nhập bằng Google/Apple',
+    description:
+      'Verify idToken với provider, tự tạo tài khoản nếu chưa tồn tại. Nếu email đã đăng ký local hoặc social provider khác, từ chối (409) thay vì tự liên kết ngầm định.',
+  })
+  @ApiResponse({ status: 200, description: 'Đăng nhập/đăng ký thành công' })
+  @ApiResponse({ status: 401, description: 'idToken không hợp lệ/hết hạn' })
+  @ApiResponse({
+    status: 409,
+    description: 'Email đã được dùng bởi local account hoặc provider khác',
+  })
+  @Post('social')
+  @HttpCode(HttpStatus.OK)
+  social(
+    @Body() dto: SocialLoginDto,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<LoginResponseDto> {
+    return this.authService.socialLogin(dto, userAgent ?? null);
   }
 }
