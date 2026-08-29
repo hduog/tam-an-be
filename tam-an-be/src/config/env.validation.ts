@@ -18,4 +18,8 @@ export const envValidationSchema = Joi.object({
   // Optional: dùng để build link xác thực email (#07) trỏ về FE. Chưa
   // chốt domain FE nên chưa required.
   FE_BASE_URL: Joi.string().uri().optional(),
+  // Optional: chưa required vì local dev/test không cần API key SendGrid
+  // thật — thiếu cả 2 -> AuthModule tự fallback ConsoleMailerService (#16).
+  SENDGRID_API_KEY: Joi.string().optional(),
+  SENDGRID_FROM_EMAIL: Joi.string().email().optional(),
 });

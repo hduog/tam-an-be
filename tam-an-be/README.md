@@ -72,6 +72,11 @@ $ npm run test:cov
 - Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md).
 - Sprint 1 (Auth/Users) — tổng kết bảo mật & hạ tầng phụ trợ, các điểm còn cần team/PO/infra quyết định: xem [documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md](documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md).
 
+## Gửi email (SendGrid)
+
+- Set `SENDGRID_API_KEY` + `SENDGRID_FROM_EMAIL` (email đã verify trên SendGrid — Single Sender hoặc Domain Authentication) để dùng SendGrid thật.
+- **Thiếu 1 trong 2 biến trên** (mặc định ở local dev) → tự động fallback về `ConsoleMailerService`, chỉ log nội dung email ra console thay vì gửi thật — không cần API key để chạy dev/test.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
