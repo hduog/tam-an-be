@@ -22,6 +22,8 @@ import { LoginDto } from './dto/login.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { AuthMeResponseDto } from './dto/auth-me-response.dto';
 import { LogoutDto } from './dto/logout.dto';
+import { RefreshDto } from './dto/refresh.dto';
+import { RefreshResponseDto } from './dto/refresh-response.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
@@ -86,5 +88,24 @@ export class AuthController {
     @Body() dto: LogoutDto,
   ): Promise<{ message: string }> {
     return this.authService.logout(user.id, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Cấp lại cặp access/refresh token (rotate)',
+    description:
+      'Refresh token cũ bị thu hồi ngay khi cấp cặp mới thành công. Dùng lại refresh token đã bị thu hồi (dấu hiệu bị đánh cắp) sẽ thu hồi toàn bộ token của user đó.',
+  })
+  @ApiResponse({ status: 200, description: 'Cấp lại token thành công' })
+  @ApiResponse({
+    status: 401,
+    description: 'Refresh token không hợp lệ/hết hạn/đã bị thu hồi',
+  })
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  refresh(
+    @Body() dto: RefreshDto,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<RefreshResponseDto> {
+    return this.authService.refresh(dto, userAgent ?? null);
   }
 }

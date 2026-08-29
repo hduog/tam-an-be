@@ -1,12 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes } from 'crypto';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { RefreshToken } from '../users/refresh-token.entity';
 import { User } from '../users/user.entity';
 
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
+
+// Message chung cho mọi lý do refresh thất bại (không tìm thấy, hết hạn,
+// đã bị thu hồi/reuse) — không tiết lộ lý do cụ thể, chỉ báo cần đăng
+// nhập lại.
+const REFRESH_INVALID_MESSAGE =
+  'Refresh token không hợp lệ hoặc đã hết hạn, vui lòng đăng nhập lại';
 
 export interface TokenPair {
   accessToken: string;
@@ -78,5 +84,54 @@ export class TokenService {
 
     entity.revokedAt = new Date();
     await this.refreshTokensRepository.save(entity);
+  }
+
+  /**
+   * Rotate: đổi refresh token cũ lấy cặp token mới, thu hồi token cũ ngay
+   * khi thành công. Nếu token đưa lên đã bị revoke từ trước (đã rotate
+   * hoặc đã logout) mà vẫn được dùng lại — dấu hiệu bị đánh cắp (reuse
+   * detection) — thu hồi TOÀN BỘ refresh token của user để buộc đăng
+   * nhập lại trên mọi thiết bị, chặn kẻ tấn công tiếp tục dùng token cũ.
+   */
+  async rotateRefreshToken(
+    refreshToken: string,
+    deviceInfo: string | null,
+  ): Promise<TokenPair> {
+    const tokenHash = this.hashRefreshToken(refreshToken);
+    const entity = await this.refreshTokensRepository.findOne({
+      where: { tokenHash },
+      relations: ['user'],
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException(REFRESH_INVALID_MESSAGE);
+    }
+
+    if (entity.revokedAt) {
+      await this.revokeAllForUser(entity.user.id);
+      throw new UnauthorizedException(REFRESH_INVALID_MESSAGE);
+    }
+
+    if (entity.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException(REFRESH_INVALID_MESSAGE);
+    }
+
+    entity.revokedAt = new Date();
+    await this.refreshTokensRepository.save(entity);
+
+    return this.issueTokenPair(entity.user, deviceInfo);
+  }
+
+  private async revokeAllForUser(userId: string): Promise<void> {
+    const activeTokens = await this.refreshTokensRepository.find({
+      where: { user: { id: userId }, revokedAt: IsNull() },
+    });
+    const now = new Date();
+    await Promise.all(
+      activeTokens.map((token) => {
+        token.revokedAt = now;
+        return this.refreshTokensRepository.save(token);
+      }),
+    );
   }
 }

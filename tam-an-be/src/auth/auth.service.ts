@@ -19,6 +19,11 @@ import {
   toAuthMeResponse,
 } from './dto/auth-me-response.dto';
 import { LogoutDto } from './dto/logout.dto';
+import { RefreshDto } from './dto/refresh.dto';
+import {
+  RefreshResponseDto,
+  toRefreshResponse,
+} from './dto/refresh-response.dto';
 import { TokenService } from './token.service';
 
 // Message cố tình chung chung cho mọi lý do đăng nhập thất bại (sai email,
@@ -109,5 +114,16 @@ export class AuthService {
     // Luôn trả 200 (idempotent) kể cả khi token không tồn tại/đã bị thu
     // hồi trước đó — không tiết lộ trạng thái token qua response.
     return { message: 'Đăng xuất thành công' };
+  }
+
+  async refresh(
+    dto: RefreshDto,
+    deviceInfo: string | null,
+  ): Promise<RefreshResponseDto> {
+    const pair = await this.tokenService.rotateRefreshToken(
+      dto.refresh_token,
+      deviceInfo,
+    );
+    return toRefreshResponse(pair);
   }
 }
