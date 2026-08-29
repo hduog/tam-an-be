@@ -60,6 +60,12 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
+  async markEmailVerified(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, {
+      emailVerifiedAt: new Date(),
+    });
+  }
+
   async getPublicProfileByUsername(
     username: string,
   ): Promise<PublicUserProfileDto> {

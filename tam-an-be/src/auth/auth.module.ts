@@ -10,6 +10,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokenService } from './token.service';
 import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
 import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
+import { EmailVerificationTokenService } from './email-verification-token.service';
+import { ConsoleMailerService } from './mailer/console-mailer.service';
+import { MAILER } from './mailer/mailer.token';
 
 @Module({
   imports: [
@@ -40,6 +43,8 @@ import { AppleTokenVerifierService } from './social/apple-token-verifier.service
     TokenService,
     GoogleTokenVerifierService,
     AppleTokenVerifierService,
+    EmailVerificationTokenService,
+    { provide: MAILER, useClass: ConsoleMailerService },
   ],
   exports: [JwtModule, TokenService],
 })

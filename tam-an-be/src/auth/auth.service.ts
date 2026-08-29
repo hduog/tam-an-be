@@ -1,9 +1,11 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { AuthProvider, UserRole, UserStatus } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
@@ -29,6 +31,10 @@ import { TokenService } from './token.service';
 import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
 import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
 import { SocialTokenVerifier } from './interfaces/social-token-verifier.interface';
+import type { Mailer } from './interfaces/mailer.interface';
+import { MAILER } from './mailer/mailer.token';
+import { EmailVerificationTokenService } from './email-verification-token.service';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 
 // Message cố tình chung chung cho mọi lý do đăng nhập thất bại (sai email,
 // sai mật khẩu, tài khoản suspended/deleted, account chỉ đăng nhập social)
@@ -49,6 +55,9 @@ export class AuthService {
     private readonly tokenService: TokenService,
     googleTokenVerifier: GoogleTokenVerifierService,
     appleTokenVerifier: AppleTokenVerifierService,
+    private readonly emailVerificationTokenService: EmailVerificationTokenService,
+    @Inject(MAILER) private readonly mailer: Mailer,
+    private readonly configService: ConfigService,
   ) {
     this.socialVerifiers = {
       [SocialAuthProvider.GOOGLE]: googleTokenVerifier,
@@ -75,14 +84,65 @@ export class AuthService {
       provider: AuthProvider.LOCAL,
     });
 
-    // Issue #07 chưa triển khai luồng gửi email xác thực thật (không có
-    // MailerService/token table trong codebase). Log lại để không âm thầm
-    // bỏ qua acceptance criteria; thay thế bằng luồng thật khi #07 hoàn thành.
-    this.logger.log(
-      `TODO(#7): gửi email xác thực cho user ${user.id} (${user.email})`,
-    );
+    await this.sendVerificationEmail(user.id, user.email);
 
     return toRegisterResponse(user);
+  }
+
+  private async sendVerificationEmail(
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const token = this.emailVerificationTokenService.sign(userId);
+    // Domain FE xác thực email chưa chốt — dùng FE_BASE_URL nếu đã cấu
+    // hình, fallback về placeholder rõ ràng thay vì đoán bừa 1 domain.
+    const feBaseUrl = this.configService.get<string>(
+      'FE_BASE_URL',
+      '<FE_BASE_URL_CHUA_CAU_HINH>',
+    );
+    const verifyLink = `${feBaseUrl}/verify-email?token=${token}`;
+    await this.mailer.send({
+      to: email,
+      subject: 'Xác thực email tài khoản Tâm An',
+      text: `Nhấn vào link sau để xác thực email (hết hạn sau 24h): ${verifyLink}`,
+    });
+  }
+
+  async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
+    const userId = this.emailVerificationTokenService.verifyAndGetUserId(
+      dto.token,
+    );
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('Token xác thực email không hợp lệ');
+    }
+
+    // "Đã dùng" được xác định qua chính field email_verified_at trên user
+    // — không cần bảng lưu token riêng. Token JWT vẫn còn hạn (24h) nên
+    // verify lần 2 sẽ rơi vào đây thay vì set lại thành công.
+    if (user.emailVerifiedAt) {
+      throw new ConflictException('Email đã được xác thực trước đó');
+    }
+
+    await this.usersService.markEmailVerified(userId);
+
+    return { message: 'Xác thực email thành công' };
+  }
+
+  async resendVerificationEmail(userId: string): Promise<{ message: string }> {
+    const user = await this.usersService.findById(userId);
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Phiên đăng nhập không còn hiệu lực');
+    }
+    if (user.emailVerifiedAt) {
+      throw new ConflictException(
+        'Email đã được xác thực trước đó, không cần gửi lại',
+      );
+    }
+
+    await this.sendVerificationEmail(user.id, user.email);
+
+    return { message: 'Đã gửi lại email xác thực' };
   }
 
   async login(

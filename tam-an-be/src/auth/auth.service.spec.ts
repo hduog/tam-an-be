@@ -1,4 +1,5 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as argon2 from 'argon2';
 import { AuthProvider, User, UserRole, UserStatus } from '../users/user.entity';
@@ -11,13 +12,20 @@ import { TokenService } from './token.service';
 import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
 import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
 import { SocialTokenVerifier } from './interfaces/social-token-verifier.interface';
+import { EmailVerificationTokenService } from './email-verification-token.service';
+import { MAILER } from './mailer/mailer.token';
+import type { Mailer } from './interfaces/mailer.interface';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      'findByEmail' | 'create' | 'findById' | 'findByProviderAndProviderId'
+      | 'findByEmail'
+      | 'create'
+      | 'findById'
+      | 'findByProviderAndProviderId'
+      | 'markEmailVerified'
     >
   >;
   let tokenService: jest.Mocked<
@@ -28,6 +36,10 @@ describe('AuthService', () => {
   >;
   let googleVerifier: jest.Mocked<SocialTokenVerifier>;
   let appleVerifier: jest.Mocked<SocialTokenVerifier>;
+  let emailVerificationTokenService: jest.Mocked<
+    Pick<EmailVerificationTokenService, 'sign' | 'verifyAndGetUserId'>
+  >;
+  let mailer: jest.Mocked<Mailer>;
 
   const registerDto: RegisterDto = {
     email: 'new.user@tam-an.dev',
@@ -64,6 +76,7 @@ describe('AuthService', () => {
       create: jest.fn(),
       findById: jest.fn(),
       findByProviderAndProviderId: jest.fn(),
+      markEmailVerified: jest.fn(),
     };
     tokenService = {
       issueTokenPair: jest.fn(),
@@ -72,6 +85,11 @@ describe('AuthService', () => {
     };
     googleVerifier = { verify: jest.fn() };
     appleVerifier = { verify: jest.fn() };
+    emailVerificationTokenService = {
+      sign: jest.fn().mockReturnValue('signed-verify-email-token'),
+      verifyAndGetUserId: jest.fn(),
+    };
+    mailer = { send: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -80,6 +98,15 @@ describe('AuthService', () => {
         { provide: TokenService, useValue: tokenService },
         { provide: GoogleTokenVerifierService, useValue: googleVerifier },
         { provide: AppleTokenVerifierService, useValue: appleVerifier },
+        {
+          provide: EmailVerificationTokenService,
+          useValue: emailVerificationTokenService,
+        },
+        { provide: MAILER, useValue: mailer },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue('https://tam-an.dev') },
+        },
       ],
     }).compile();
 
@@ -125,6 +152,15 @@ describe('AuthService', () => {
       expect(
         (result as unknown as Record<string, unknown>).password_hash,
       ).toBeUndefined();
+
+      // AC: kích hoạt gửi email xác thực tự động sau khi đăng ký.
+      expect(emailVerificationTokenService.sign).toHaveBeenCalledWith(
+        createdUser.id,
+      );
+      expect(mailer.send).toHaveBeenCalledTimes(1);
+      const mailArg = mailer.send.mock.calls[0][0];
+      expect(mailArg.to).toBe(createdUser.email);
+      expect(mailArg.text).toContain('signed-verify-email-token');
     });
 
     it('trùng email: ném ConflictException và không tạo user mới', async () => {
@@ -498,6 +534,101 @@ describe('AuthService', () => {
 
       expect(appleVerifier.verify).toHaveBeenCalledWith('raw-apple-id-token');
       expect(googleVerifier.verify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('token hợp lệ + chưa xác thực trước đó: verify thành công, set email_verified_at', async () => {
+      emailVerificationTokenService.verifyAndGetUserId.mockReturnValue(
+        'user-id-1',
+      );
+      usersService.findById.mockResolvedValue(
+        buildUser({ emailVerifiedAt: null }),
+      );
+
+      const result = await service.verifyEmail({ token: 'valid-token' });
+
+      expect(
+        emailVerificationTokenService.verifyAndGetUserId,
+      ).toHaveBeenCalledWith('valid-token');
+      expect(usersService.markEmailVerified).toHaveBeenCalledWith('user-id-1');
+      expect(typeof result.message).toBe('string');
+    });
+
+    it('token không hợp lệ/hết hạn: lỗi từ EmailVerificationTokenService được ném thẳng lên', async () => {
+      emailVerificationTokenService.verifyAndGetUserId.mockImplementation(
+        () => {
+          throw new UnauthorizedException('Token xác thực email không hợp lệ');
+        },
+      );
+
+      await expect(service.verifyEmail({ token: 'bad-token' })).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(usersService.markEmailVerified).not.toHaveBeenCalled();
+    });
+
+    it('user trong token không còn tồn tại: ném 401', async () => {
+      emailVerificationTokenService.verifyAndGetUserId.mockReturnValue(
+        'deleted-user-id',
+      );
+      usersService.findById.mockResolvedValue(null);
+
+      await expect(
+        service.verifyEmail({ token: 'valid-token-deleted-user' }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(usersService.markEmailVerified).not.toHaveBeenCalled();
+    });
+
+    it('verify 2 lần (token vẫn còn hạn nhưng email đã xác thực trước đó): ném 409, không set lại', async () => {
+      emailVerificationTokenService.verifyAndGetUserId.mockReturnValue(
+        'user-id-1',
+      );
+      usersService.findById.mockResolvedValue(
+        buildUser({ emailVerifiedAt: new Date('2026-01-02T00:00:00Z') }),
+      );
+
+      await expect(
+        service.verifyEmail({ token: 'already-used-token' }),
+      ).rejects.toThrow(ConflictException);
+      expect(usersService.markEmailVerified).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resendVerificationEmail', () => {
+    it('chưa xác thực: gửi lại thành công, sinh token mới', async () => {
+      usersService.findById.mockResolvedValue(
+        buildUser({ emailVerifiedAt: null }),
+      );
+      emailVerificationTokenService.sign.mockReturnValue('new-token');
+
+      const result = await service.resendVerificationEmail('user-id-1');
+
+      expect(emailVerificationTokenService.sign).toHaveBeenCalledWith(
+        'user-id-1',
+      );
+      expect(mailer.send).toHaveBeenCalledTimes(1);
+      expect(typeof result.message).toBe('string');
+    });
+
+    it('email đã xác thực trước đó: ném 409, không gửi lại', async () => {
+      usersService.findById.mockResolvedValue(
+        buildUser({ emailVerifiedAt: new Date() }),
+      );
+
+      await expect(
+        service.resendVerificationEmail('user-id-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(mailer.send).not.toHaveBeenCalled();
+    });
+
+    it('phiên không còn hiệu lực (user không tồn tại/không active): ném 401', async () => {
+      usersService.findById.mockResolvedValue(null);
+
+      await expect(
+        service.resendVerificationEmail('unknown-id'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mailer.send).not.toHaveBeenCalled();
     });
   });
 });

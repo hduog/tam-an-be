@@ -25,6 +25,7 @@ import { LogoutDto } from './dto/logout.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RefreshResponseDto } from './dto/refresh-response.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
@@ -128,5 +129,37 @@ export class AuthController {
     @Headers('user-agent') userAgent?: string,
   ): Promise<LoginResponseDto> {
     return this.authService.socialLogin(dto, userAgent ?? null);
+  }
+
+  @ApiOperation({
+    summary: 'Xác thực email bằng token gửi trong link email',
+  })
+  @ApiResponse({ status: 200, description: 'Xác thực thành công' })
+  @ApiResponse({
+    status: 401,
+    description: 'Token không hợp lệ/hết hạn',
+  })
+  @ApiResponse({ status: 409, description: 'Email đã được xác thực trước đó' })
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  verifyEmail(@Body() dto: VerifyEmailDto): Promise<{ message: string }> {
+    return this.authService.verifyEmail(dto);
+  }
+
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Gửi lại email xác thực',
+    description: 'Gửi lại cho chính email của tài khoản đang đăng nhập.',
+  })
+  @ApiResponse({ status: 200, description: 'Đã gửi lại email' })
+  @ApiResponse({ status: 401, description: 'Thiếu/sai access token' })
+  @ApiResponse({ status: 409, description: 'Email đã được xác thực trước đó' })
+  @UseGuards(JwtAuthGuard)
+  @Post('resend-verification-email')
+  @HttpCode(HttpStatus.OK)
+  resendVerificationEmail(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    return this.authService.resendVerificationEmail(user.id);
   }
 }
