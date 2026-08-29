@@ -23,6 +23,12 @@ export const envValidationSchema = Joi.object({
   // — cấm luôn ở đây để lỡ copy nhầm .env thì crash rõ ràng lúc khởi
   // động thay vì JwtStrategy âm thầm chọn sai chế độ verify.
   AUTH_JWKS_URI: Joi.any().forbidden(),
+  // Gọi sang users-service để tạo/xoá hồ sơ (register, social login,
+  // DELETE /auth/me) — xem UsersServiceClient.
+  USERS_SERVICE_URL: Joi.string().uri().required(),
+  // Shared secret xác thực service-to-service cho POST/DELETE
+  // /internal/users — cả 2 service cùng cần biết giá trị này.
+  INTERNAL_API_KEY: Joi.string().min(32).required(),
   // Optional: chưa bắt buộc vì social login (#04) chỉ báo lỗi rõ ràng khi
   // gọi mà thiếu cấu hình, không chặn khởi động toàn bộ app.
   GOOGLE_CLIENT_ID: Joi.string().optional(),

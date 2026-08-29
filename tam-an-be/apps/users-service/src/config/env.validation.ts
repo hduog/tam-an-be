@@ -16,4 +16,8 @@ export const envValidationSchema = Joi.object({
   // đây để lỡ copy nhầm .env thì crash rõ ràng lúc khởi động thay vì
   // users-service âm thầm giữ luôn private key của auth-service.
   JWT_PRIVATE_KEY: Joi.any().forbidden(),
+  // Shared secret xác thực service-to-service cho POST/DELETE
+  // /internal/users (InternalApiKeyGuard) — auth-service là bên gọi duy
+  // nhất, cả 2 service cùng cần biết giá trị này.
+  INTERNAL_API_KEY: Joi.string().min(32).required(),
 });

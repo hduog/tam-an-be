@@ -1,4 +1,8 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as argon2 from 'argon2';
@@ -16,6 +20,7 @@ import { SocialTokenVerifier } from './interfaces/social-token-verifier.interfac
 import { EmailVerificationTokenService } from './email-verification-token.service';
 import { MAILER } from './mailer/mailer.token';
 import type { Mailer } from './interfaces/mailer.interface';
+import { UsersServiceClient } from './internal/users-service-client';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -45,6 +50,9 @@ describe('AuthService', () => {
     Pick<EmailVerificationTokenService, 'sign' | 'verifyAndGetUserId'>
   >;
   let mailer: jest.Mocked<Mailer>;
+  let usersServiceClient: jest.Mocked<
+    Pick<UsersServiceClient, 'createProfile' | 'deleteProfile'>
+  >;
 
   const registerDto: RegisterDto = {
     email: 'new.user@tam-an.dev',
@@ -93,6 +101,10 @@ describe('AuthService', () => {
       verifyAndGetUserId: jest.fn(),
     };
     mailer = { send: jest.fn().mockResolvedValue(undefined) };
+    usersServiceClient = {
+      createProfile: jest.fn().mockResolvedValue(undefined),
+      deleteProfile: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -110,6 +122,7 @@ describe('AuthService', () => {
           provide: ConfigService,
           useValue: { get: jest.fn().mockReturnValue('https://tam-an.dev') },
         },
+        { provide: UsersServiceClient, useValue: usersServiceClient },
       ],
     }).compile();
 
@@ -155,6 +168,15 @@ describe('AuthService', () => {
         (result as unknown as Record<string, unknown>).password_hash,
       ).toBeUndefined();
 
+      // AC: tạo hồ sơ bên users-service TRƯỚC khi gửi email xác thực (nếu
+      // fail thì không được gửi nhầm email cho tài khoản sắp compensate).
+      expect(usersServiceClient.createProfile).toHaveBeenCalledWith({
+        userId: createdUser.id,
+        role: createdUser.role,
+        identityCreatedAt: createdUser.createdAt,
+        displayName: registerDto.display_name,
+      });
+
       // AC: kích hoạt gửi email xác thực tự động sau khi đăng ký.
       expect(emailVerificationTokenService.sign).toHaveBeenCalledWith(
         createdUser.id,
@@ -174,6 +196,40 @@ describe('AuthService', () => {
         ConflictException,
       );
       expect(identityService.create).not.toHaveBeenCalled();
+    });
+
+    it('tạo profile bên users-service thất bại: compensate (xoá profile + soft-delete identity) và ném 503, không gửi email xác thực', async () => {
+      identityService.findByEmail.mockResolvedValue(null);
+      const createdUser = buildUser({ email: registerDto.email });
+      identityService.create.mockResolvedValue(createdUser);
+      usersServiceClient.createProfile.mockRejectedValue(
+        new Error('users-service down'),
+      );
+
+      await expect(service.register(registerDto)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+
+      expect(usersServiceClient.deleteProfile).toHaveBeenCalledWith(
+        createdUser.id,
+      );
+      expect(identityService.softDelete).toHaveBeenCalledWith(createdUser.id);
+      expect(emailVerificationTokenService.sign).not.toHaveBeenCalled();
+      expect(mailer.send).not.toHaveBeenCalled();
+    });
+
+    it('tạo profile thất bại VÀ compensate (soft-delete) cũng thất bại: vẫn ném lỗi gốc 503 (không nuốt lỗi)', async () => {
+      identityService.findByEmail.mockResolvedValue(null);
+      const createdUser = buildUser({ email: registerDto.email });
+      identityService.create.mockResolvedValue(createdUser);
+      usersServiceClient.createProfile.mockRejectedValue(
+        new Error('users-service down'),
+      );
+      identityService.softDelete.mockRejectedValue(new Error('db unreachable'));
+
+      await expect(service.register(registerDto)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
     });
   });
 
@@ -411,6 +467,7 @@ describe('AuthService', () => {
         'google-sub-1',
       );
       expect(identityService.create).not.toHaveBeenCalled();
+      expect(usersServiceClient.createProfile).not.toHaveBeenCalled();
       expect(tokenService.issueTokenPair).toHaveBeenCalledWith(existing, null);
       expect(result.access_token).toBe('at');
     });
@@ -445,6 +502,69 @@ describe('AuthService', () => {
           providerId: 'google-sub-new',
         }),
       );
+      // AC: tạo profile bên users-service cho tài khoản social mới, dùng
+      // displayName từ provider khi có.
+      expect(usersServiceClient.createProfile).toHaveBeenCalledWith({
+        userId: createdUser.id,
+        role: createdUser.role,
+        identityCreatedAt: createdUser.createdAt,
+        displayName: 'Người Mới Từ Google',
+      });
+    });
+
+    it('provider không trả displayName (Apple thường vậy): fallback về phần đầu email khi tạo profile', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-no-name',
+        email: 'no.name@tam-an.dev',
+      });
+      identityService.findByProviderAndProviderId.mockResolvedValue(null);
+      identityService.findByEmail.mockResolvedValue(null);
+      const createdUser = buildUser({
+        provider: AuthProvider.GOOGLE,
+        providerId: 'google-sub-no-name',
+        email: 'no.name@tam-an.dev',
+        passwordHash: null,
+      });
+      identityService.create.mockResolvedValue(createdUser);
+      tokenService.issueTokenPair.mockResolvedValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      await service.socialLogin(socialDto, null);
+
+      expect(usersServiceClient.createProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ displayName: 'no.name' }),
+      );
+    });
+
+    it('tạo profile bên users-service thất bại (tài khoản social mới): compensate và ném 503', async () => {
+      googleVerifier.verify.mockResolvedValue({
+        providerId: 'google-sub-fail',
+        email: 'fail.case@tam-an.dev',
+      });
+      identityService.findByProviderAndProviderId.mockResolvedValue(null);
+      identityService.findByEmail.mockResolvedValue(null);
+      const createdUser = buildUser({
+        provider: AuthProvider.GOOGLE,
+        providerId: 'google-sub-fail',
+        email: 'fail.case@tam-an.dev',
+        passwordHash: null,
+      });
+      identityService.create.mockResolvedValue(createdUser);
+      usersServiceClient.createProfile.mockRejectedValue(
+        new Error('users-service down'),
+      );
+
+      await expect(service.socialLogin(socialDto, null)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+
+      expect(usersServiceClient.deleteProfile).toHaveBeenCalledWith(
+        createdUser.id,
+      );
+      expect(identityService.softDelete).toHaveBeenCalledWith(createdUser.id);
+      expect(tokenService.issueTokenPair).not.toHaveBeenCalled();
     });
 
     it('email đã đăng ký bằng local account: ném 409, không tạo user mới, không phát hành token', async () => {
@@ -642,6 +762,9 @@ describe('AuthService', () => {
 
       expect(identityService.softDelete).toHaveBeenCalledWith('user-id-1');
       expect(tokenService.revokeAllForUser).toHaveBeenCalledWith('user-id-1');
+      expect(usersServiceClient.deleteProfile).toHaveBeenCalledWith(
+        'user-id-1',
+      );
       expect(typeof result.message).toBe('string');
     });
 
@@ -652,6 +775,7 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(identityService.softDelete).not.toHaveBeenCalled();
+      expect(usersServiceClient.deleteProfile).not.toHaveBeenCalled();
     });
   });
 });

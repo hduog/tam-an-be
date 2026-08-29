@@ -15,6 +15,13 @@ import {
   UserProfileResponseDto,
 } from './dto/user-profile-response.dto';
 
+export interface CreateProfileData {
+  userId: string;
+  role: UserProfile['role'];
+  identityCreatedAt: Date;
+  displayName: string;
+}
+
 @Injectable()
 export class ProfilesService {
   constructor(
@@ -24,6 +31,33 @@ export class ProfilesService {
 
   findByUserId(userId: string): Promise<UserProfile | null> {
     return this.profilesRepository.findOne({ where: { userId } });
+  }
+
+  /**
+   * Idempotent-safe cho retry từ auth-service: dùng ON CONFLICT DO NOTHING
+   * trên PK (userId) thay vì check-rồi-insert, tránh race khi 2 retry gần
+   * như đồng thời cùng insert.
+   */
+  async createFromIdentity(data: CreateProfileData): Promise<UserProfile> {
+    await this.profilesRepository
+      .createQueryBuilder()
+      .insert()
+      .into(UserProfile)
+      .values({
+        userId: data.userId,
+        role: data.role,
+        identityCreatedAt: data.identityCreatedAt,
+        displayName: data.displayName,
+      })
+      .orIgnore()
+      .execute();
+
+    return (await this.findByUserId(data.userId)) as UserProfile;
+  }
+
+  /** Idempotent — xoá 0 dòng (profile không tồn tại) không throw. */
+  async deleteByUserId(userId: string): Promise<void> {
+    await this.profilesRepository.delete({ userId });
   }
 
   async getPublicProfileByUsername(
