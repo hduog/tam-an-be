@@ -21,6 +21,7 @@ import { RegisterResponseDto } from './dto/register-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { AuthMeResponseDto } from './dto/auth-me-response.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/jwt-payload.interface';
@@ -67,5 +68,23 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   me(@CurrentUser() user: AuthenticatedUser): Promise<AuthMeResponseDto> {
     return this.authService.me(user.id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Đăng xuất phiên hiện tại',
+    description:
+      'Thu hồi đúng refresh token của phiên hiện tại, không ảnh hưởng thiết bị khác. Idempotent — luôn trả 200 kể cả khi token đã bị thu hồi.',
+  })
+  @ApiResponse({ status: 200, description: 'Đăng xuất thành công' })
+  @ApiResponse({ status: 401, description: 'Thiếu/sai access token' })
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  logout(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: LogoutDto,
+  ): Promise<{ message: string }> {
+    return this.authService.logout(user.id, dto);
   }
 }

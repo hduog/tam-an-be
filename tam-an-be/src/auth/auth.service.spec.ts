@@ -13,7 +13,9 @@ describe('AuthService', () => {
   let usersService: jest.Mocked<
     Pick<UsersService, 'findByEmail' | 'create' | 'findById'>
   >;
-  let tokenService: jest.Mocked<Pick<TokenService, 'issueTokenPair'>>;
+  let tokenService: jest.Mocked<
+    Pick<TokenService, 'issueTokenPair' | 'revokeByUserAndToken'>
+  >;
 
   const registerDto: RegisterDto = {
     email: 'new.user@tam-an.dev',
@@ -52,6 +54,7 @@ describe('AuthService', () => {
     };
     tokenService = {
       issueTokenPair: jest.fn(),
+      revokeByUserAndToken: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -264,6 +267,33 @@ describe('AuthService', () => {
       await expect(service.me('some-user-id')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('logout', () => {
+    it('logout thành công: gọi revokeByUserAndToken và trả message ack', async () => {
+      tokenService.revokeByUserAndToken.mockResolvedValue(undefined);
+
+      const result = await service.logout('user-id-1', {
+        refresh_token: 'some-refresh-token',
+      });
+
+      expect(tokenService.revokeByUserAndToken).toHaveBeenCalledWith(
+        'user-id-1',
+        'some-refresh-token',
+      );
+      expect(typeof result.message).toBe('string');
+    });
+
+    it('logout với token đã thu hồi trước đó: vẫn trả thành công (idempotent)', async () => {
+      // TokenService tự xử lý idempotency (không throw) — AuthService chỉ
+      // ủy quyền, luôn trả ack thành công bất kể trạng thái token.
+      tokenService.revokeByUserAndToken.mockResolvedValue(undefined);
+
+      const result = await service.logout('user-id-1', {
+        refresh_token: 'already-revoked',
+      });
+      expect(typeof result.message).toBe('string');
     });
   });
 });
