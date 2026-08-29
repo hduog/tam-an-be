@@ -7,17 +7,44 @@ import { UserRole, UserStatus } from '@shared-auth';
 import { ProfilesService } from './profiles.service';
 import { UserProfile } from './user-profile.entity';
 
+interface MockInsertQueryBuilder {
+  insert: jest.Mock;
+  into: jest.Mock;
+  values: jest.Mock;
+  orIgnore: jest.Mock;
+  execute: jest.Mock;
+}
+
 interface MockRepository {
   findOne: jest.MockedFunction<Repository<UserProfile>['findOne']>;
   save: jest.MockedFunction<Repository<UserProfile>['save']>;
+  delete: jest.MockedFunction<Repository<UserProfile>['delete']>;
+  createQueryBuilder: jest.Mock;
+  insertQueryBuilder: MockInsertQueryBuilder;
 }
 
-const createMockRepository = (): MockRepository => ({
-  findOne: jest.fn(),
-  save: jest.fn((entity) => Promise.resolve(entity)) as jest.MockedFunction<
-    Repository<UserProfile>['save']
-  >,
-});
+const createMockInsertQueryBuilder = (): MockInsertQueryBuilder => {
+  const builder: Partial<MockInsertQueryBuilder> = {};
+  builder.insert = jest.fn().mockReturnValue(builder);
+  builder.into = jest.fn().mockReturnValue(builder);
+  builder.values = jest.fn().mockReturnValue(builder);
+  builder.orIgnore = jest.fn().mockReturnValue(builder);
+  builder.execute = jest.fn().mockResolvedValue(undefined);
+  return builder as MockInsertQueryBuilder;
+};
+
+const createMockRepository = (): MockRepository => {
+  const insertQueryBuilder = createMockInsertQueryBuilder();
+  return {
+    findOne: jest.fn(),
+    save: jest.fn((entity) => Promise.resolve(entity)) as jest.MockedFunction<
+      Repository<UserProfile>['save']
+    >,
+    delete: jest.fn().mockResolvedValue({ affected: 1, raw: [] }),
+    createQueryBuilder: jest.fn().mockReturnValue(insertQueryBuilder),
+    insertQueryBuilder,
+  };
+};
 
 describe('ProfilesService', () => {
   let service: ProfilesService;
@@ -166,6 +193,55 @@ describe('ProfilesService', () => {
       expect(result.display_name).toBe(profile.displayName);
       expect(result.bio).toBe(profile.bio);
       expect(result.username).toBe(profile.username);
+    });
+  });
+
+  describe('createFromIdentity', () => {
+    const createData = {
+      userId: 'a3c9a6d0-1111-4b11-9c11-000000000001',
+      role: UserRole.USER,
+      identityCreatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      displayName: 'Người dùng Mới',
+    };
+
+    it('chưa có profile: insert (ON CONFLICT DO NOTHING) rồi trả về profile vừa tạo', async () => {
+      repository.findOne.mockResolvedValue(buildProfile(createData));
+
+      const result = await service.createFromIdentity(createData);
+
+      expect(repository.insertQueryBuilder.insert).toHaveBeenCalled();
+      expect(repository.insertQueryBuilder.values).toHaveBeenCalledWith(
+        createData,
+      );
+      expect(repository.insertQueryBuilder.orIgnore).toHaveBeenCalled();
+      expect(repository.insertQueryBuilder.execute).toHaveBeenCalled();
+      expect(result.userId).toBe(createData.userId);
+    });
+
+    it('gọi lại với userId đã tồn tại (retry): idempotent, vẫn trả về đúng profile, không throw', async () => {
+      repository.findOne.mockResolvedValue(buildProfile(createData));
+
+      await expect(
+        service.createFromIdentity(createData),
+      ).resolves.toMatchObject({ userId: createData.userId });
+    });
+  });
+
+  describe('deleteByUserId', () => {
+    it('xoá profile tồn tại: gọi repository.delete với đúng userId', async () => {
+      await service.deleteByUserId('a3c9a6d0-1111-4b11-9c11-000000000001');
+
+      expect(repository.delete).toHaveBeenCalledWith({
+        userId: 'a3c9a6d0-1111-4b11-9c11-000000000001',
+      });
+    });
+
+    it('xoá userId không tồn tại: vẫn không throw (idempotent)', async () => {
+      repository.delete.mockResolvedValue({ affected: 0, raw: [] });
+
+      await expect(
+        service.deleteByUserId('unknown-user-id'),
+      ).resolves.toBeUndefined();
     });
   });
 });

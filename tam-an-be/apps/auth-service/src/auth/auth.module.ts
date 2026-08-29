@@ -12,6 +12,7 @@ import { TokenService } from './token.service';
 import { GoogleTokenVerifierService } from './social/google-token-verifier.service';
 import { AppleTokenVerifierService } from './social/apple-token-verifier.service';
 import { EmailVerificationTokenService } from './email-verification-token.service';
+import { UsersServiceClient } from './internal/users-service-client';
 import { ConsoleMailerService } from './mailer/console-mailer.service';
 import { SendGridMailerService } from './mailer/sendgrid-mailer.service';
 import { MAILER } from './mailer/mailer.token';
@@ -50,6 +51,7 @@ import type { Mailer } from './interfaces/mailer.interface';
   providers: [
     AuthService,
     TokenService,
+    UsersServiceClient,
     GoogleTokenVerifierService,
     AppleTokenVerifierService,
     EmailVerificationTokenService,

@@ -3,13 +3,15 @@ import {
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { SigningJwk, UserRole, UserStatus } from '@shared-auth';
-import { AuthProvider } from '../identity/user.entity';
+import { AuthProvider, User } from '../identity/user.entity';
 import { IdentityService } from '../identity/identity.service';
+import { UsersServiceClient } from './internal/users-service-client';
 import { RegisterDto } from './dto/register.dto';
 import {
   RegisterResponseDto,
@@ -59,6 +61,7 @@ export class AuthService {
     private readonly emailVerificationTokenService: EmailVerificationTokenService,
     @Inject(MAILER) private readonly mailer: Mailer,
     private readonly configService: ConfigService,
+    private readonly usersServiceClient: UsersServiceClient,
   ) {
     this.socialVerifiers = {
       [SocialAuthProvider.GOOGLE]: googleTokenVerifier,
@@ -84,9 +87,53 @@ export class AuthService {
       provider: AuthProvider.LOCAL,
     });
 
+    await this.createProfileOrCompensate(user, dto.display_name);
+
     await this.sendVerificationEmail(user.id, user.email);
 
     return toRegisterResponse(user);
+  }
+
+  /**
+   * Tạo hồ sơ bên users-service ngay sau khi vừa tạo identity (register,
+   * social login tài khoản mới). Nếu fail: dọn cả 2 phía thay vì để lại
+   * tài khoản "mồ côi" — xoá luôn profile vừa tạo bên users-service
+   * (best-effort, phòng trường hợp call tạo thực ra đã thành công nhưng
+   * response bị mất) và soft-delete identity vừa tạo. Lỗi ở chính bước
+   * soft-delete không được nuốt mất lỗi gốc — vẫn throw lỗi gốc cho
+   * client, chỉ log thêm để biết cần can thiệp thủ công.
+   */
+  private async createProfileOrCompensate(
+    user: User,
+    displayName: string,
+  ): Promise<void> {
+    try {
+      await this.usersServiceClient.createProfile({
+        userId: user.id,
+        role: user.role,
+        identityCreatedAt: user.createdAt,
+        displayName,
+      });
+    } catch (error) {
+      await this.usersServiceClient.deleteProfile(user.id);
+      try {
+        await this.identityService.softDelete(user.id);
+      } catch (softDeleteError) {
+        this.logger.error(
+          `Tạo profile thất bại VÀ compensate (soft-delete identity) cũng thất bại — cần can thiệp thủ công, userId=${user.id}`,
+          softDeleteError instanceof Error
+            ? softDeleteError.stack
+            : String(softDeleteError),
+        );
+      }
+      this.logger.error(
+        `Đăng ký thất bại: không tạo được profile bên users-service, đã compensate — userId=${user.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new ServiceUnavailableException(
+        'Đăng ký thất bại, vui lòng thử lại sau',
+      );
+    }
   }
 
   private async sendVerificationEmail(
@@ -245,6 +292,13 @@ export class AuthService {
         provider,
         providerId: verified.providerId,
       });
+
+      // Apple thường không trả tên trong idToken — fallback về phần đầu
+      // email, người dùng có thể đổi lại qua PATCH /users/me (#12).
+      await this.createProfileOrCompensate(
+        user,
+        verified.displayName ?? verified.email.split('@')[0],
+      );
     }
 
     if (user.status !== UserStatus.ACTIVE) {
@@ -271,6 +325,10 @@ export class AuthService {
     // Thu hồi toàn bộ refresh token -> đăng xuất khỏi mọi thiết bị ngay
     // lập tức, không chờ access token hết hạn tự nhiên.
     await this.tokenService.revokeAllForUser(userId);
+
+    // Dọn hồ sơ bên users-service — best-effort, không ảnh hưởng response
+    // (phía identity đã xoá xong, đó mới là điều quan trọng với client).
+    await this.usersServiceClient.deleteProfile(userId);
 
     return { message: 'Tài khoản đã được xoá' };
   }
