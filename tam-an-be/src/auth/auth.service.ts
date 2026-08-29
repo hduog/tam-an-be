@@ -14,6 +14,10 @@ import {
 } from './dto/register-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { LoginResponseDto, toLoginResponse } from './dto/login-response.dto';
+import {
+  AuthMeResponseDto,
+  toAuthMeResponse,
+} from './dto/auth-me-response.dto';
 import { TokenService } from './token.service';
 
 // Message cố tình chung chung cho mọi lý do đăng nhập thất bại (sai email,
@@ -84,5 +88,18 @@ export class AuthService {
       await this.tokenService.issueTokenPair(user, deviceInfo);
 
     return toLoginResponse(user, accessToken, refreshToken);
+  }
+
+  async me(userId: string): Promise<AuthMeResponseDto> {
+    const user = await this.usersService.findById(userId);
+
+    // Token còn hợp lệ nhưng user đã bị xoá/suspend sau khi token phát
+    // hành — coi như phiên không còn hiệu lực, trả 401 giống token hỏng
+    // (nhất quán với cách #11 ẩn tài khoản suspended).
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Phiên đăng nhập không còn hiệu lực');
+    }
+
+    return toAuthMeResponse(user);
   }
 }
