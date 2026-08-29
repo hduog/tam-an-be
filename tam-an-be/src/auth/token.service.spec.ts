@@ -1,7 +1,8 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { RefreshToken } from '../users/refresh-token.entity';
 import { AuthProvider, User, UserRole, UserStatus } from '../users/user.entity';
 import { TokenService } from './token.service';
@@ -10,7 +11,7 @@ describe('TokenService', () => {
   let service: TokenService;
   let jwtService: jest.Mocked<Pick<JwtService, 'sign'>>;
   let repository: jest.Mocked<
-    Pick<Repository<RefreshToken>, 'create' | 'save' | 'findOne'>
+    Pick<Repository<RefreshToken>, 'create' | 'save' | 'findOne' | 'find'>
   >;
 
   const user: User = Object.assign(new User(), {
@@ -37,6 +38,7 @@ describe('TokenService', () => {
       create: jest.fn((data) => data as RefreshToken),
       save: jest.fn((entity) => Promise.resolve(entity as RefreshToken)),
       findOne: jest.fn(),
+      find: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -154,6 +156,86 @@ describe('TokenService', () => {
         service.revokeByUserAndToken(user.id, 'unknown-token'),
       ).resolves.toBeUndefined();
       expect(repository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rotateRefreshToken', () => {
+    const buildEntity = (
+      overrides: Partial<RefreshToken> = {},
+    ): RefreshToken => ({
+      id: 'rt-1',
+      user,
+      tokenHash: service.hashRefreshToken('valid-refresh-token'),
+      deviceInfo: 'old-device',
+      expiresAt: new Date(Date.now() + 1000),
+      revokedAt: null,
+      ...overrides,
+    });
+
+    it('refresh hợp lệ: thu hồi token cũ, cấp cặp token mới cho đúng user', async () => {
+      repository.findOne.mockResolvedValue(buildEntity());
+
+      const result = await service.rotateRefreshToken(
+        'valid-refresh-token',
+        'new-device',
+      );
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { tokenHash: service.hashRefreshToken('valid-refresh-token') },
+        relations: ['user'],
+      });
+      // Save 2 lần: 1 lần revoke token cũ (trong rotateRefreshToken), 1 lần
+      // tạo token mới (bên trong issueTokenPair).
+      expect(repository.save).toHaveBeenCalledTimes(2);
+      const revokedOld = repository.save.mock.calls[0][0] as RefreshToken;
+      expect(revokedOld.revokedAt).toBeInstanceOf(Date);
+
+      expect(result.accessToken).toBe('signed-access-token');
+      expect(result.refreshToken).toEqual(expect.any(String));
+      expect(result.refreshToken).not.toBe('valid-refresh-token');
+    });
+
+    it('refresh token không tồn tại: ném 401, không cấp token', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.rotateRefreshToken('unknown-token', null),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('refresh token đã hết hạn: ném 401, không cấp token', async () => {
+      repository.findOne.mockResolvedValue(
+        buildEntity({ expiresAt: new Date(Date.now() - 1000) }),
+      );
+
+      await expect(
+        service.rotateRefreshToken('expired-token', null),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('reuse detection: token đã bị thu hồi trước đó -> ném 401 và thu hồi TOÀN BỘ refresh token còn active của user', async () => {
+      repository.findOne.mockResolvedValue(
+        buildEntity({ revokedAt: new Date('2026-01-01T00:00:00Z') }),
+      );
+      const otherActiveTokens: RefreshToken[] = [
+        buildEntity({ id: 'rt-2', revokedAt: null }),
+        buildEntity({ id: 'rt-3', revokedAt: null }),
+      ];
+      repository.find.mockResolvedValue(otherActiveTokens);
+
+      await expect(
+        service.rotateRefreshToken('stolen-and-reused-token', null),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(repository.find).toHaveBeenCalledWith({
+        where: { user: { id: user.id }, revokedAt: IsNull() },
+      });
+      expect(repository.save).toHaveBeenCalledTimes(2);
+      for (const call of repository.save.mock.calls) {
+        expect((call[0] as RefreshToken).revokedAt).toBeInstanceOf(Date);
+      }
     });
   });
 });

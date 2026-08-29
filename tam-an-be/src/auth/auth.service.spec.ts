@@ -14,7 +14,10 @@ describe('AuthService', () => {
     Pick<UsersService, 'findByEmail' | 'create' | 'findById'>
   >;
   let tokenService: jest.Mocked<
-    Pick<TokenService, 'issueTokenPair' | 'revokeByUserAndToken'>
+    Pick<
+      TokenService,
+      'issueTokenPair' | 'revokeByUserAndToken' | 'rotateRefreshToken'
+    >
   >;
 
   const registerDto: RegisterDto = {
@@ -55,6 +58,7 @@ describe('AuthService', () => {
     tokenService = {
       issueTokenPair: jest.fn(),
       revokeByUserAndToken: jest.fn(),
+      rotateRefreshToken: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -294,6 +298,39 @@ describe('AuthService', () => {
         refresh_token: 'already-revoked',
       });
       expect(typeof result.message).toBe('string');
+    });
+  });
+
+  describe('refresh', () => {
+    it('uỷ quyền cho TokenService.rotateRefreshToken và map đúng response', async () => {
+      tokenService.rotateRefreshToken.mockResolvedValue({
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+      });
+
+      const result = await service.refresh(
+        { refresh_token: 'old-refresh-token' },
+        'jest-agent',
+      );
+
+      expect(tokenService.rotateRefreshToken).toHaveBeenCalledWith(
+        'old-refresh-token',
+        'jest-agent',
+      );
+      expect(result).toEqual({
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+      });
+    });
+
+    it('token không hợp lệ/hết hạn/đã bị thu hồi: lỗi 401 được ném thẳng lên (không nuốt lỗi)', async () => {
+      tokenService.rotateRefreshToken.mockRejectedValue(
+        new UnauthorizedException('invalid'),
+      );
+
+      await expect(
+        service.refresh({ refresh_token: 'bad-token' }, null),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });
