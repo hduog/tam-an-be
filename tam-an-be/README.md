@@ -62,6 +62,11 @@ $ npm run test:cov
 - Swagger UI: `http://localhost:<PORT>/api/docs` (chỉ bật khi `NODE_ENV` khác `production`).
 - Hướng dẫn thêm docs cho endpoint mới, test Bearer token trên UI: xem [documents/swagger-guide.md](documents/swagger-guide.md).
 
+## Xác thực (JWT Guard)
+
+- Cần set `JWT_ACCESS_SECRET` (tối thiểu 32 ký tự) trong biến môi trường; `JWT_ACCESS_EXPIRES_IN` tuỳ chọn (mặc định `15m`).
+- Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md).
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
