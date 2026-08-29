@@ -17,7 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { CurrentUser, JwtAuthGuard } from '@shared-auth';
-import type { AuthenticatedUser } from '@shared-auth';
+import type { AuthenticatedUser, SigningJwk } from '@shared-auth';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterResponseDto } from './dto/register-response.dto';
@@ -185,5 +185,17 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ message: string }> {
     return this.authService.deleteMe(user.id);
+  }
+
+  @ApiOperation({
+    summary: 'JWKS — public key để các service khác verify access token',
+    description:
+      'Dạng JWKS chuẩn (RFC 7517). Không cần token, không có thông tin nhạy cảm.',
+  })
+  @ApiResponse({ status: 200, description: 'Thành công' })
+  @Get('jwks.json')
+  @HttpCode(HttpStatus.OK)
+  jwks(): { keys: SigningJwk[] } {
+    return this.authService.getJwks();
   }
 }

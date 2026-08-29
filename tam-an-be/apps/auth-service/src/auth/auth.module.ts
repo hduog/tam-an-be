@@ -3,7 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SharedAuthModule } from '@shared-auth';
+import { SharedAuthModule, normalizePem } from '@shared-auth';
 import { IdentityModule } from '../identity/identity.module';
 import { RefreshToken } from './refresh-token.entity';
 import { AuthController } from './auth.controller';
@@ -34,8 +34,14 @@ import type { Mailer } from './interfaces/mailer.interface';
           '15m',
         ) as NonNullable<JwtModuleOptions['signOptions']>['expiresIn'];
         return {
-          secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-          signOptions: { expiresIn },
+          privateKey: normalizePem(
+            config.getOrThrow<string>('JWT_PRIVATE_KEY'),
+          ),
+          signOptions: {
+            expiresIn,
+            algorithm: 'RS256',
+            keyid: config.get<string>('JWT_KEY_ID', 'auth-key-1'),
+          },
         };
       },
     }),

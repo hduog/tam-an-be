@@ -7,10 +7,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { JwtStrategy, UserRole } from '@shared-auth';
+import { generateTestRsaKeyPair } from '@shared-auth/testing/rsa-test-keypair';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
-const ACCESS_SECRET = 'me-endpoint-test-secret-of-32-chars!';
+const { privateKeyPem } = generateTestRsaKeyPair();
 
 /**
  * Chứng minh AC "token hợp lệ / hết hạn / thiếu token" của Issue #08 trên
@@ -35,12 +36,12 @@ describe('AuthController GET /auth/me (integration)', () => {
         ConfigModule.forRoot({
           isGlobal: true,
           ignoreEnvFile: true,
-          load: [() => ({ JWT_ACCESS_SECRET: ACCESS_SECRET })],
+          load: [() => ({ JWT_PRIVATE_KEY: privateKeyPem })],
         }),
         PassportModule,
         JwtModule.register({
-          secret: ACCESS_SECRET,
-          signOptions: { expiresIn: '15m' },
+          privateKey: privateKeyPem,
+          signOptions: { expiresIn: '15m', algorithm: 'RS256' },
         }),
         ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
       ],

@@ -6,10 +6,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { JwtStrategy, UserRole } from '@shared-auth';
+import { generateTestRsaKeyPair } from '@shared-auth/testing/rsa-test-keypair';
 import { ProfilesController } from './profiles.controller';
 import { ProfilesService } from './profiles.service';
 
-const ACCESS_SECRET = 'users-me-test-secret-of-32-chars!!!';
+// Production dùng JWKS-remote (AUTH_JWKS_URI), nhưng test này chỉ cần
+// chứng minh JwtAuthGuard accept/reject đúng token RS256 trên route thật
+// — dùng chế độ local-key (JWT_PRIVATE_KEY) đơn giản hơn, không cần mock
+// jwks-rsa. Cơ chế fetch JWKS tự nó được test riêng ở jwt.strategy.spec.ts.
+const { privateKeyPem } = generateTestRsaKeyPair();
 
 /**
  * Chứng minh AC "yêu cầu access token hợp lệ" của Issue #12 trên route
@@ -36,12 +41,12 @@ describe('ProfilesController PATCH /users/me (integration)', () => {
         ConfigModule.forRoot({
           isGlobal: true,
           ignoreEnvFile: true,
-          load: [() => ({ JWT_ACCESS_SECRET: ACCESS_SECRET })],
+          load: [() => ({ JWT_PRIVATE_KEY: privateKeyPem })],
         }),
         PassportModule,
         JwtModule.register({
-          secret: ACCESS_SECRET,
-          signOptions: { expiresIn: '15m' },
+          privateKey: privateKeyPem,
+          signOptions: { expiresIn: '15m', algorithm: 'RS256' },
         }),
       ],
       controllers: [ProfilesController],

@@ -17,10 +17,11 @@ import { CurrentUser } from '../decorators/current-user.decorator';
 import { Roles } from '../decorators/roles.decorator';
 import { AuthenticatedUser } from '../interfaces/jwt-payload.interface';
 import { JwtStrategy } from '../jwt.strategy';
+import { generateTestRsaKeyPair } from '../testing/rsa-test-keypair';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 
-const ACCESS_SECRET = 'integration-test-secret-of-32-chars!!';
+const { privateKeyPem } = generateTestRsaKeyPair();
 
 /**
  * Throwaway routes demonstrating the 3 access tiers from Issue #09 —
@@ -69,12 +70,12 @@ describe('JWT Guard chain (integration)', () => {
         ConfigModule.forRoot({
           isGlobal: true,
           ignoreEnvFile: true,
-          load: [() => ({ JWT_ACCESS_SECRET: ACCESS_SECRET })],
+          load: [() => ({ JWT_PRIVATE_KEY: privateKeyPem })],
         }),
         PassportModule,
         JwtModule.register({
-          secret: ACCESS_SECRET,
-          signOptions: { expiresIn: '15m' },
+          privateKey: privateKeyPem,
+          signOptions: { expiresIn: '15m', algorithm: 'RS256' },
         }),
       ],
       controllers: [DemoController],
@@ -119,9 +120,11 @@ describe('JWT Guard chain (integration)', () => {
       .expect(401);
   });
 
-  it('User tier — token sai chữ ký: 401', async () => {
+  it('User tier — token sai chữ ký (ký bằng key khác): 401', async () => {
+    const { privateKeyPem: foreignPrivateKey } = generateTestRsaKeyPair();
     const foreignToken = new JwtService({
-      secret: 'a-completely-different-secret',
+      privateKey: foreignPrivateKey,
+      signOptions: { algorithm: 'RS256' },
     }).sign({ sub: 'user-1', role: UserRole.USER });
 
     await request(app.getHttpServer())
