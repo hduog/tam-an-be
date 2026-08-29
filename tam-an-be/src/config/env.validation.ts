@@ -15,4 +15,7 @@ export const envValidationSchema = Joi.object({
   // gọi mà thiếu cấu hình, không chặn khởi động toàn bộ app.
   GOOGLE_CLIENT_ID: Joi.string().optional(),
   APPLE_CLIENT_ID: Joi.string().optional(),
+  // Optional: dùng để build link xác thực email (#07) trỏ về FE. Chưa
+  // chốt domain FE nên chưa required.
+  FE_BASE_URL: Joi.string().uri().optional(),
 });
