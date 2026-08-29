@@ -1,3 +1,4 @@
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -7,10 +8,14 @@ import { AuthProvider, User, UserRole, UserStatus } from './user.entity';
 
 interface MockRepository {
   findOne: jest.MockedFunction<Repository<User>['findOne']>;
+  save: jest.MockedFunction<Repository<User>['save']>;
 }
 
 const createMockRepository = (): MockRepository => ({
   findOne: jest.fn(),
+  save: jest.fn((entity) => Promise.resolve(entity)) as jest.MockedFunction<
+    Repository<User>['save']
+  >,
 });
 
 describe('UsersService', () => {
@@ -105,5 +110,75 @@ describe('UsersService', () => {
     await expect(
       service.getPublicProfileByUsername('demo_user'),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  describe('updateProfile', () => {
+    it('cập nhật thành công (partial update, không đổi username): trả hồ sơ mới, không có password_hash', async () => {
+      const user = buildUser();
+      repository.findOne.mockResolvedValueOnce(user); // findById
+
+      const result = await service.updateProfile(user.id, {
+        display_name: 'Tên Mới',
+        bio: 'Bio mới',
+      });
+
+      expect(repository.findOne).toHaveBeenCalledTimes(1); // không check username vì không đổi
+      expect(repository.save).toHaveBeenCalledTimes(1);
+      expect(result.display_name).toBe('Tên Mới');
+      expect(result.bio).toBe('Bio mới');
+      expect(result.username).toBe(user.username);
+      expect(
+        (result as unknown as Record<string, unknown>).passwordHash,
+      ).toBeUndefined();
+      expect(
+        (result as unknown as Record<string, unknown>).password_hash,
+      ).toBeUndefined();
+    });
+
+    it('đổi username hợp lệ (chưa ai dùng): cập nhật thành công', async () => {
+      const user = buildUser();
+      repository.findOne
+        .mockResolvedValueOnce(user) // findById
+        .mockResolvedValueOnce(null); // uniqueness check: không trùng ai
+
+      const result = await service.updateProfile(user.id, {
+        username: 'new_username',
+      });
+
+      expect(repository.findOne).toHaveBeenCalledTimes(2);
+      expect(result.username).toBe('new_username');
+    });
+
+    it('username đã tồn tại (thuộc user khác): ném 409, không lưu', async () => {
+      const user = buildUser();
+      repository.findOne
+        .mockResolvedValueOnce(user) // findById
+        .mockResolvedValueOnce(buildUser({ id: 'other-user-id' })); // trùng
+
+      await expect(
+        service.updateProfile(user.id, { username: 'taken_username' }),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('user không còn tồn tại/không active (token hợp lệ nhưng phiên đã mất hiệu lực): ném 401, không lưu', async () => {
+      repository.findOne.mockResolvedValueOnce(null); // findById -> not found
+
+      await expect(
+        service.updateProfile('deleted-user-id', { display_name: 'X' }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('body rỗng (không field nào): coi như no-op, vẫn trả hồ sơ hiện tại, không lưu field nào bị đổi', async () => {
+      const user = buildUser();
+      repository.findOne.mockResolvedValueOnce(user);
+
+      const result = await service.updateProfile(user.id, {});
+
+      expect(result.display_name).toBe(user.displayName);
+      expect(result.bio).toBe(user.bio);
+      expect(result.username).toBe(user.username);
+    });
   });
 });

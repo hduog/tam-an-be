@@ -1,8 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 import { User, UserStatus } from './user.entity';
 import { PublicUserProfileDto } from './dto/public-user-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import {
+  toUserProfileResponse,
+  UserProfileResponseDto,
+} from './dto/user-profile-response.dto';
 
 export interface CreateUserData {
   email: string;
@@ -56,5 +66,41 @@ export class UsersService {
       role: user.role,
       createdAt: user.createdAt,
     };
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: UpdateProfileDto,
+  ): Promise<UserProfileResponseDto> {
+    const user = await this.findById(userId);
+    // Route cố định /users/me — Owner luôn là chính user trong token, nên
+    // không cần so sánh id; chỉ còn case token hợp lệ nhưng account đã bị
+    // xoá/suspend sau khi phát hành (nhất quán với AuthService.me).
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Phiên đăng nhập không còn hiệu lực');
+    }
+
+    if (dto.username && dto.username !== user.username) {
+      const existing = await this.usersRepository.findOne({
+        where: { username: dto.username, id: Not(userId) },
+      });
+      if (existing) {
+        throw new ConflictException('username đã được sử dụng');
+      }
+      user.username = dto.username;
+    }
+
+    if (dto.display_name !== undefined) {
+      user.displayName = dto.display_name;
+    }
+    if (dto.bio !== undefined) {
+      user.bio = dto.bio;
+    }
+    if (dto.avatar_url !== undefined) {
+      user.avatarUrl = dto.avatar_url;
+    }
+
+    const saved = await this.usersRepository.save(user);
+    return toUserProfileResponse(saved);
   }
 }

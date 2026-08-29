@@ -1,12 +1,40 @@
-import { Controller, Get, Param } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { PublicUserProfileDto } from './dto/public-user-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UserProfileResponseDto } from './dto/user-profile-response.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import type { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Cập nhật hồ sơ cá nhân (Owner)',
+    description:
+      'Cập nhật từng phần display_name/bio/username/avatar_url của chính tài khoản đang đăng nhập.',
+  })
+  @ApiResponse({ status: 200, description: 'Cập nhật thành công' })
+  @ApiResponse({ status: 401, description: 'Thiếu/sai access token' })
+  @ApiResponse({ status: 409, description: 'username đã được sử dụng' })
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  updateMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateProfileDto,
+  ): Promise<UserProfileResponseDto> {
+    return this.usersService.updateProfile(user.id, dto);
+  }
 
   @Get(':username')
   getPublicProfile(
