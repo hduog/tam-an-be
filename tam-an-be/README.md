@@ -101,7 +101,7 @@ $ npm run test:cov
   verification token (nội bộ auth-service), không liên quan access token.
 - Gọi HTTP nội bộ giữa 2 service (VD tạo/xoá hồ sơ khi đăng ký/xoá tài
   khoản) xác thực bằng `INTERNAL_API_KEY` — cùng 1 giá trị ở cả 2 `.env`.
-- Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md) (tài liệu này đang mô tả kiến trúc monolith cũ, sẽ cập nhật cho `libs/shared-auth` + JWKS).
+- Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, `InternalApiKeyGuard`, phân biệt 401/403, cách thêm JWT verify cho service mới: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md).
 - Sprint 1 (Auth/Users) — tổng kết bảo mật & hạ tầng phụ trợ, các điểm còn cần team/PO/infra quyết định: xem [documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md](documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md).
 
 ## Gửi email (SendGrid)
