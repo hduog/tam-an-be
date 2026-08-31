@@ -109,10 +109,6 @@ $ npm run test:cov
 - Set `SENDGRID_API_KEY` + `SENDGRID_FROM_EMAIL` (email đã verify trên SendGrid — Single Sender hoặc Domain Authentication) để dùng SendGrid thật.
 - **Thiếu 1 trong 2 biến trên** (mặc định ở local dev) → tự động fallback về `ConsoleMailerService`, chỉ log nội dung email ra console thay vì gửi thật — không cần API key để chạy dev/test.
 
-## Landing page (Three.js)
-
-- Landing page trực quan hóa toán học (định lý Pythagoras 3D, fractal, tỉ lệ vàng, gradient descent...), tĩnh và độc lập với 2 service — xem [landing-page/README.md](landing-page/README.md).
-
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
