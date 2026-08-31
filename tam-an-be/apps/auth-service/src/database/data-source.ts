@@ -2,7 +2,7 @@ import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import * as dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: 'apps/auth-service/.env' });
 
 export const AppDataSource = new DataSource({
   type: 'postgres',

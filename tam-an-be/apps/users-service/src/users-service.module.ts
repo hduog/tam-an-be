@@ -9,6 +9,7 @@ import { ProfilesModule } from './profiles/profiles.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: 'apps/users-service/.env',
       validationSchema: envValidationSchema,
     }),
     TypeOrmModule.forRootAsync({
