@@ -35,6 +35,19 @@ $ npm install
 $ docker compose up -d   # auth-postgres (5433) + users-postgres (5434)
 ```
 
+### Environment setup
+
+Mỗi service có `.env` riêng (KHÔNG dùng chung 1 file gộp cả 2):
+
+```bash
+$ cp apps/auth-service/.env.example apps/auth-service/.env
+$ cp apps/users-service/.env.example apps/users-service/.env
+```
+
+Điền giá trị thật vào cả 2 file — quan trọng nhất:
+- `apps/auth-service/.env`: `JWT_PRIVATE_KEY` (sinh bằng `npm run generate:jwt-keypair`, xem mục "Xác thực" bên dưới).
+- `INTERNAL_API_KEY` **phải giống hệt nhau** ở cả 2 file (secret dùng cho gọi HTTP nội bộ auth-service → users-service).
+
 ## Compile and run the project
 
 ```bash
@@ -78,10 +91,17 @@ $ npm run test:cov
 
 - Toàn bộ lỗi trả về theo 1 format chuẩn (`statusCode`, `errorCode`, `message`, `path`, `timestamp`), áp dụng global — không cần cấu hình gì thêm ở controller mới. Chi tiết: xem [documents/error-response-guide.md](documents/error-response-guide.md).
 
-## Xác thực (JWT Guard)
+## Xác thực (JWT Guard, RSA + JWKS)
 
-- Cần set `JWT_ACCESS_SECRET` (tối thiểu 32 ký tự) trong biến môi trường; `JWT_ACCESS_EXPIRES_IN` tuỳ chọn (mặc định `15m`).
-- Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md).
+- Access token ký RS256 bằng RSA private key — auth-service giữ
+  `JWT_PRIVATE_KEY` (sinh bằng `npm run generate:jwt-keypair`), expose
+  public key qua `GET /auth/jwks.json`. Các service khác (users-service)
+  verify cục bộ qua `AUTH_JWKS_URI` trỏ tới endpoint đó — không giữ key
+  nào cả. `JWT_ACCESS_SECRET` vẫn còn nhưng chỉ dùng riêng cho email
+  verification token (nội bộ auth-service), không liên quan access token.
+- Gọi HTTP nội bộ giữa 2 service (VD tạo/xoá hồ sơ khi đăng ký/xoá tài
+  khoản) xác thực bằng `INTERNAL_API_KEY` — cùng 1 giá trị ở cả 2 `.env`.
+- Hướng dẫn dùng `JwtAuthGuard`, `RolesGuard`, `@CurrentUser()`, phân biệt 401/403: xem [documents/auth-guard-guide.md](documents/auth-guard-guide.md) (tài liệu này đang mô tả kiến trúc monolith cũ, sẽ cập nhật cho `libs/shared-auth` + JWKS).
 - Sprint 1 (Auth/Users) — tổng kết bảo mật & hạ tầng phụ trợ, các điểm còn cần team/PO/infra quyết định: xem [documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md](documents/sprint_1/issue_14_bao_mat_ha_tang_phu_tro.md).
 
 ## Gửi email (SendGrid)

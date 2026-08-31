@@ -30,14 +30,15 @@ export const envValidationSchema = Joi.object({
   // /internal/users — cả 2 service cùng cần biết giá trị này.
   INTERNAL_API_KEY: Joi.string().min(32).required(),
   // Optional: chưa bắt buộc vì social login (#04) chỉ báo lỗi rõ ràng khi
-  // gọi mà thiếu cấu hình, không chặn khởi động toàn bộ app.
-  GOOGLE_CLIENT_ID: Joi.string().optional(),
-  APPLE_CLIENT_ID: Joi.string().optional(),
+  // gọi mà thiếu cấu hình, không chặn khởi động toàn bộ app. `.allow('')`
+  // để .env.example có thể để trống dòng thay vì phải xoá hẳn.
+  GOOGLE_CLIENT_ID: Joi.string().optional().allow(''),
+  APPLE_CLIENT_ID: Joi.string().optional().allow(''),
   // Optional: dùng để build link xác thực email (#07) trỏ về FE. Chưa
   // chốt domain FE nên chưa required.
-  FE_BASE_URL: Joi.string().uri().optional(),
+  FE_BASE_URL: Joi.string().uri().optional().allow(''),
   // Optional: chưa required vì local dev/test không cần API key SendGrid
   // thật — thiếu cả 2 -> AuthModule tự fallback ConsoleMailerService (#16).
-  SENDGRID_API_KEY: Joi.string().optional(),
-  SENDGRID_FROM_EMAIL: Joi.string().email().optional(),
+  SENDGRID_API_KEY: Joi.string().optional().allow(''),
+  SENDGRID_FROM_EMAIL: Joi.string().email().optional().allow(''),
 });

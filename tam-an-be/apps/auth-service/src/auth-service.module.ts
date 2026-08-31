@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: 'apps/auth-service/.env',
       validationSchema: envValidationSchema,
     }),
     TypeOrmModule.forRootAsync({
